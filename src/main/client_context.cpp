@@ -1120,6 +1120,15 @@ void ClientContext::BlockingInterruptCheck() const {
 	}
 }
 
+void ClientContext::BlockingInterruptCheck() const {
+	if (IsInterrupted()) {
+		throw InterruptException();
+	}
+	if (QueryDeadlinePassed()) {
+		throw InterruptException(QUERY_DEADLINE_ERROR);
+	}
+}
+
 bool ClientContext::QueryDeadlinePassed() const {
 	if (!query_deadline.IsValid()) {
 		return false;
