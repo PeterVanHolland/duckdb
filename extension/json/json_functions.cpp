@@ -343,7 +343,7 @@ static bool CastJSONListToVarchar(Vector &source, Vector &result, idx_t count, C
 }
 
 //! Reads a list in DuckDB syntax, as written when casting LIST(JSON) or LIST(VARCHAR) to VARCHAR
-static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<yyjson_val *> &elements) {
+static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<yyjson_val *> &elements, string &error) {
 	const auto data = input.GetDataWriteable();
 	const auto size = input.GetSize();
 	idx_t pos = 0;
@@ -361,6 +361,7 @@ static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<y
 		pos++;
 		skip_whitespace();
 		yyjson_doc *doc;
+		yyjson_read_err read_error;
 		if (pos < size && data[pos] == '\'') {
 			unescaped.clear();
 			for (pos++; pos < size && data[pos] != '\''; pos++) {
@@ -372,17 +373,20 @@ static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<y
 			if (pos++ == size) {
 				return false;
 			}
-			doc = JSONCommon::ReadDocumentUnsafe(&unescaped[0], unescaped.size(), JSONCommon::READ_FLAG, alc);
+			doc = JSONCommon::ReadDocumentUnsafe(&unescaped[0], unescaped.size(), JSONCommon::READ_FLAG, alc,
+			                                     &read_error);
 			if (!doc) {
+				error = JSONCommon::FormatParseError(unescaped.c_str(), unescaped.size(), read_error);
 				return false;
 			}
 		} else {
 			const auto start = pos;
-			if (!JSONCommon::SkipValue(data, size, pos)) {
+			if (!JSONCommon::SkipValue(data, size, pos) || pos == start) {
 				return false;
 			}
-			doc = JSONCommon::ReadDocumentUnsafe(data + start, pos - start, JSONCommon::READ_FLAG, alc);
+			doc = JSONCommon::ReadDocumentUnsafe(data + start, pos - start, JSONCommon::READ_FLAG, alc, &read_error);
 			if (!doc && !StringUtil::CIEquals(data + start, pos - start, "null", 4)) {
+				error = JSONCommon::FormatParseError(data + start, pos - start, read_error);
 				return false;
 			}
 		}
@@ -411,15 +415,18 @@ static bool CastVarcharToJSONList(Vector &source, Vector &result, idx_t count, C
 		    const auto doc = JSONCommon::ReadDocumentUnsafe(input.GetDataWriteable(), input.GetSize(),
 		                                                    JSONCommon::READ_FLAG, alc, &error);
 		    elements.clear();
+		    string element_error;
 		    if (doc && unsafe_yyjson_is_arr(doc->root)) {
 			    size_t arr_idx, max;
 			    yyjson_val *val;
 			    yyjson_arr_foreach(doc->root, arr_idx, max, val) {
 				    elements.push_back(val);
 			    }
-		    } else if (!TryReadJSONListText(input, alc, elements)) {
+		    } else if (!TryReadJSONListText(input, alc, elements, element_error)) {
 			    if (success) {
-				    if (!doc) {
+				    if (!element_error.empty()) {
+					    HandleCastError::AssignError(element_error, parameters);
+				    } else if (!doc) {
 					    HandleCastError::AssignError(
 					        JSONCommon::FormatParseError(input.GetDataWriteable(), input.GetSize(), error), parameters);
 				    } else {
@@ -443,13 +450,13 @@ static bool CastVarcharToJSONList(Vector &source, Vector &result, idx_t count, C
 		    }
 
 		    // Populate list
-		    auto &result_child = ListVector::GetChildMutable(result);
-		    const auto result_jsons = FlatVector::GetDataMutable<string_t>(result_child);
-		    for (idx_t i = 0; i < elements.size(); i++) {
-			    if (elements[i]) {
-				    result_jsons[current_size + i] = JSONCommon::WriteVal(elements[i], alc);
+		    auto result_jsons =
+		        FlatVector::Writer<string_t>(ListVector::GetChildMutable(result), elements.size(), current_size);
+		    for (const auto element : elements) {
+			    if (element) {
+				    result_jsons.WriteStringRef(JSONCommon::WriteVal(element, alc));
 			    } else {
-				    FlatVector::SetNull(result_child, current_size + i, true);
+				    result_jsons.WriteNull();
 			    }
 		    }
 
