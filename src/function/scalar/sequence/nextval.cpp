@@ -91,14 +91,6 @@ void NextValFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 		return;
 	}
 	auto &lstate = ExecuteFunctionState::GetFunctionState(state)->Cast<NextValLocalState>();
-	if constexpr (!std::is_same_v<OP, CurrentSequenceValueOperator>) {
-		if (!lstate.write_registered && args.size() > 0) {
-			// this can also run while a statement is bound, before the statement registers its writes
-			MetaTransaction::Get(state.GetContext())
-			    .ModifyDatabase(lstate.sequence.catalog.GetAttached(), DatabaseModificationType::SEQUENCE);
-			lstate.write_registered = true;
-		}
-	}
 	// sequence to use is hard coded
 	// increment the sequence
 	result.SetVectorType(VectorType::FLAT_VECTOR);
@@ -124,6 +116,14 @@ void NextValFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 
 		int64_t value = new_val_entries ? (*new_val_entries)[i].GetValue() : 0;
 		bool is_called = is_called_entries ? (*is_called_entries)[i].GetValue() : true;
+		if constexpr (!std::is_same_v<OP, CurrentSequenceValueOperator>) {
+			if (!lstate.write_registered) {
+				// this can also run while a statement is bound, before the statement registers its writes
+				MetaTransaction::Get(state.GetContext())
+				    .ModifyDatabase(lstate.sequence.catalog.GetAttached(), DatabaseModificationType::SEQUENCE);
+				lstate.write_registered = true;
+			}
+		}
 		// get the next value from the sequence
 		result_data.WriteValue(OP::Operation(lstate.transaction, lstate.sequence, value, is_called));
 	}
