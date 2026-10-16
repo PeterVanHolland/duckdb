@@ -354,3 +354,23 @@ statement error
 SELECT '[''1'', NULL x]'::JSON[]
 ----
 Malformed JSON at byte 11 of input: unexpected character
+
+statement error
+SELECT '[''1\'::JSON[]
+----
+Malformed JSON at byte 4 of input: unexpected end of data
+
+statement error
+SELECT '[1, NULL, {"a": [1'::JSON[]
+----
+Malformed JSON at byte 18 of input: unexpected end of data
+
+statement error
+SELECT '[] x'::JSON[]
+----
+Malformed JSON at byte 3 of input: unexpected character
+
+query TT
+SELECT TRY_CAST(chr(11) || '[]' AS JSON[]), TRY_CAST(chr(11) || '[NULL]' AS JSON[])
+----
+[]	[NULL]

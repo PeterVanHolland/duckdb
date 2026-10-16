@@ -365,10 +365,11 @@ static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<y
 	if (pos == size || data[pos] != '[') {
 		return false;
 	}
+	pos++;
+	skip_whitespace();
 	string unescaped;
-	do {
-		pos++;
-		skip_whitespace();
+	auto read_element = pos == size || data[pos] != ']';
+	while (read_element) {
 		yyjson_doc *doc;
 		if (pos < size && data[pos] == '\'') {
 			unescaped.clear();
@@ -401,7 +402,12 @@ static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<y
 		}
 		elements.push_back(doc ? doc->root : nullptr);
 		skip_whitespace();
-	} while (pos < size && data[pos] == ',');
+		read_element = pos < size && data[pos] == ',';
+		if (read_element) {
+			pos++;
+			skip_whitespace();
+		}
+	}
 	if (pos == size || data[pos] != ']') {
 		return fail();
 	}
