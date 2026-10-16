@@ -344,3 +344,13 @@ NULL
 NULL
 NULL
 [NULL]
+
+statement error
+SELECT '[''1'', ''unterminated'::JSON[]
+----
+Malformed JSON at byte 19 of input: unexpected end of data
+
+statement error
+SELECT '[''1'', NULL x]'::JSON[]
+----
+Malformed JSON at byte 11 of input: unexpected character

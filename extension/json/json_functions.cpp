@@ -352,6 +352,15 @@ static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<y
 			pos++;
 		}
 	};
+	yyjson_read_err read_error;
+	const auto fail = [&]() {
+		read_error.pos = MinValue(pos, size);
+		const auto at_end = read_error.pos == size;
+		read_error.code = at_end ? YYJSON_READ_ERROR_UNEXPECTED_END : YYJSON_READ_ERROR_UNEXPECTED_CHARACTER;
+		read_error.msg = at_end ? "unexpected end of data" : "unexpected character";
+		error = JSONCommon::FormatParseError(data, size, read_error);
+		return false;
+	};
 	skip_whitespace();
 	if (pos == size || data[pos] != '[') {
 		return false;
@@ -361,18 +370,18 @@ static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<y
 		pos++;
 		skip_whitespace();
 		yyjson_doc *doc;
-		yyjson_read_err read_error;
 		if (pos < size && data[pos] == '\'') {
 			unescaped.clear();
 			for (pos++; pos < size && data[pos] != '\''; pos++) {
 				if (data[pos] == '\\' && ++pos == size) {
-					return false;
+					return fail();
 				}
 				unescaped += data[pos];
 			}
-			if (pos++ == size) {
-				return false;
+			if (pos == size) {
+				return fail();
 			}
+			pos++;
 			doc = JSONCommon::ReadDocumentUnsafe(&unescaped[0], unescaped.size(), JSONCommon::READ_FLAG, alc,
 			                                     &read_error);
 			if (!doc) {
@@ -382,7 +391,7 @@ static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<y
 		} else {
 			const auto start = pos;
 			if (!JSONCommon::SkipValue(data, size, pos) || pos == start) {
-				return false;
+				return fail();
 			}
 			doc = JSONCommon::ReadDocumentUnsafe(data + start, pos - start, JSONCommon::READ_FLAG, alc, &read_error);
 			if (!doc && !StringUtil::CIEquals(data + start, pos - start, "null", 4)) {
@@ -394,11 +403,14 @@ static bool TryReadJSONListText(const string_t &input, yyjson_alc *alc, vector<y
 		skip_whitespace();
 	} while (pos < size && data[pos] == ',');
 	if (pos == size || data[pos] != ']') {
-		return false;
+		return fail();
 	}
 	pos++;
 	skip_whitespace();
-	return pos == size;
+	if (pos != size) {
+		return fail();
+	}
+	return true;
 }
 
 static bool CastVarcharToJSONList(Vector &source, Vector &result, idx_t count, CastParameters &parameters) {
@@ -415,17 +427,17 @@ static bool CastVarcharToJSONList(Vector &source, Vector &result, idx_t count, C
 		    const auto doc = JSONCommon::ReadDocumentUnsafe(input.GetDataWriteable(), input.GetSize(),
 		                                                    JSONCommon::READ_FLAG, alc, &error);
 		    elements.clear();
-		    string element_error;
+		    string list_error;
 		    if (doc && unsafe_yyjson_is_arr(doc->root)) {
 			    size_t arr_idx, max;
 			    yyjson_val *val;
 			    yyjson_arr_foreach(doc->root, arr_idx, max, val) {
 				    elements.push_back(val);
 			    }
-		    } else if (!TryReadJSONListText(input, alc, elements, element_error)) {
+		    } else if (!TryReadJSONListText(input, alc, elements, list_error)) {
 			    if (success) {
-				    if (!element_error.empty()) {
-					    HandleCastError::AssignError(element_error, parameters);
+				    if (!list_error.empty()) {
+					    HandleCastError::AssignError(list_error, parameters);
 				    } else if (!doc) {
 					    HandleCastError::AssignError(
 					        JSONCommon::FormatParseError(input.GetDataWriteable(), input.GetSize(), error), parameters);
