@@ -81,6 +81,18 @@ unique_ptr<FunctionLocalState> NextValLocalFunction(ExpressionState &state, cons
 	return make_uniq<NextValLocalState>(transaction, sequence);
 }
 
+//! nextval and setval can also run while a statement is bound, before the statement registers its writes
+unique_ptr<FunctionLocalState> NextValWriteLocalFunction(ExpressionState &state, const BoundFunctionExpression &expr,
+                                                         FunctionData *bind_data) {
+	auto result = NextValLocalFunction(state, expr, bind_data);
+	if (result) {
+		auto &sequence = result->Cast<NextValLocalState>().sequence;
+		MetaTransaction::Get(state.GetContext())
+		    .ModifyDatabase(sequence.catalog.GetAttached(), DatabaseModificationType::SEQUENCE);
+	}
+	return result;
+}
+
 template <class OP>
 void NextValFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &func_expr = state.expr.Cast<BoundFunctionExpression>();
@@ -177,7 +189,7 @@ ScalarFunction NextvalFun::GetFunction() {
 	next_val.SetSerializeCallback(Serialize);
 	next_val.SetDeserializeCallback(Deserialize);
 	next_val.SetModifiedDatabasesCallback(NextValModifiedDatabases);
-	next_val.SetInitStateCallback(NextValLocalFunction);
+	next_val.SetInitStateCallback(NextValWriteLocalFunction);
 	next_val.SetVolatile();
 	next_val.SetFallible();
 	next_val.SetRequiresOrderedExecution(true);
@@ -207,7 +219,7 @@ ScalarFunctionSet SetvalFun::GetFunctions() {
 	set_val.SetSerializeCallback(Serialize);
 	set_val.SetDeserializeCallback(Deserialize);
 	set_val.SetModifiedDatabasesCallback(NextValModifiedDatabases);
-	set_val.SetInitStateCallback(NextValLocalFunction);
+	set_val.SetInitStateCallback(NextValWriteLocalFunction);
 	set_val.SetVolatile();
 	set_val.SetFallible();
 	set_val.SetRequiresOrderedExecution(true);
