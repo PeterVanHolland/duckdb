@@ -21,6 +21,10 @@ CREATE VIEW b.v AS SELECT * FROM range(setval('a.seq', 5))
 ----
 a single transaction can only write to a single attached database
 
+# a branch that is not taken writes nothing
+statement ok
+CREATE VIEW b.v_case AS SELECT * FROM range(CASE WHEN false THEN nextval('a.seq') ELSE 1 END)
+
 # a view that only calls nextval when it is queried writes nothing to the other database
 statement ok
 CREATE VIEW b.v_lazy AS SELECT nextval('a.seq') AS x
@@ -32,4 +36,5 @@ query II
 SELECT database_name, view_name FROM duckdb_views() WHERE NOT internal ORDER BY ALL
 ----
 a	v
+b	v_case
 b	v_lazy
