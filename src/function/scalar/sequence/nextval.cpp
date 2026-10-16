@@ -119,8 +119,12 @@ void NextValFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 		if constexpr (!std::is_same_v<OP, CurrentSequenceValueOperator>) {
 			if (!lstate.write_registered) {
 				// this can also run while a statement is bound, before the statement registers its writes
-				MetaTransaction::Get(state.GetContext())
-				    .ModifyDatabase(lstate.sequence.catalog.GetAttached(), DatabaseModificationType::SEQUENCE);
+				auto &db = lstate.sequence.catalog.GetAttached();
+				if (db.IsReadOnly()) {
+					throw InvalidInputException("Cannot execute %s on database %s which is attached in read-only mode!",
+					                            func_expr.Function().GetName(), db.GetName());
+				}
+				MetaTransaction::Get(state.GetContext()).ModifyDatabase(db, DatabaseModificationType::SEQUENCE);
 				lstate.write_registered = true;
 			}
 		}

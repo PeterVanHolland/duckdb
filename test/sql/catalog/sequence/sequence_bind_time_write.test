@@ -25,10 +25,6 @@ a single transaction can only write to a single attached database
 statement ok
 CREATE VIEW b.v_case AS SELECT * FROM range(CASE WHEN false THEN nextval('a.seq') ELSE 1 END)
 
-# setval of NULL writes nothing
-statement ok
-CREATE VIEW b.v_null AS SELECT * FROM range(coalesce(setval('a.seq', NULL::BIGINT), 1))
-
 # a view that only calls nextval when it is queried writes nothing to the other database
 statement ok
 CREATE VIEW b.v_lazy AS SELECT nextval('a.seq') AS x
@@ -42,4 +38,26 @@ SELECT database_name, view_name FROM duckdb_views() WHERE NOT internal ORDER BY 
 a	v
 b	v_case
 b	v_lazy
-b	v_null
+
+# a sequence of a read-only database is not written either
+statement ok
+ATTACH '__TEST_DIR__/sequence_bind_time_write.db' AS ro
+
+statement ok
+CREATE SEQUENCE ro.seq START 1
+
+statement ok
+DETACH ro
+
+statement ok
+ATTACH '__TEST_DIR__/sequence_bind_time_write.db' AS ro (READ_ONLY)
+
+statement error
+CREATE TEMP VIEW v_ro AS SELECT * FROM range(nextval('ro.seq'))
+----
+Cannot execute "nextval" on database "ro" which is attached in read-only mode!
+
+statement error
+CREATE TEMP VIEW v_ro AS SELECT * FROM range(setval('ro.seq', 5))
+----
+Cannot execute "setval" on database "ro" which is attached in read-only mode!
