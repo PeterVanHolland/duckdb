@@ -261,7 +261,7 @@ ORDER BY id
 NULL
 [1, NULL, {"a":2}]
 
-# VARCHAR to LIST(JSON) requires valid JSON containing an array
+# VARCHAR to LIST(JSON) requires a list
 query T
 SELECT TRY_CAST(v AS JSON[]) FROM (VALUES ('not json')) t(v)
 ----
@@ -276,3 +276,101 @@ query T
 SELECT TRY_CAST(v AS JSON[]) FROM (VALUES ('[1,null,{"a":2}]')) t(v)
 ----
 [1, null, {"a":2}]
+
+# VARCHAR to LIST(JSON) reads the text of LIST(JSON) and LIST(VARCHAR) values
+query TTT
+SELECT l, l[2] IS NULL, l[3] IS NULL
+FROM (SELECT [JSON '{"x": 1}', NULL, JSON 'null', JSON '"a"', JSON '[1, 2]']::VARCHAR::JSON[] AS l)
+----
+[{"x":1}, NULL, null, "a", [1,2]]	true	false
+
+query TT
+SELECT l, l[2] IS NULL
+FROM (SELECT ['{"x": "it''s a\b"}', NULL, 'null', '"a"', '[1, 2]', '1']::VARCHAR[]::VARCHAR::JSON[] AS l)
+----
+[{"x":"it's a\b"}, NULL, null, "a", [1,2], 1]	true
+
+query TT
+SELECT l, l[1] IS NULL
+FROM (SELECT '[ null , NULL ]'::JSON[] AS l)
+----
+[null, NULL]	false
+
+query T
+SELECT ({'l': [JSON '{"x": 1}', NULL]})::VARCHAR::STRUCT(l JSON[])
+----
+{'l': [{"x":1}, NULL]}
+
+query T
+SELECT (MAP {'k': [JSON '1', NULL]})::VARCHAR::MAP(VARCHAR, JSON[])
+----
+{k=[1, NULL]}
+
+query II
+SELECT sum(l[3]::INTEGER), count(l[2])
+FROM (SELECT [JSON '1', NULL, i::VARCHAR::JSON]::VARCHAR::JSON[] AS l FROM range(3000) t(i))
+----
+4498500	0
+
+statement error
+SELECT '[''not json'', NULL]'::JSON[]
+----
+Malformed JSON
+
+query T
+SELECT TRY_CAST(v AS JSON[]) FROM (VALUES ('[1, NULL'), ('[NULL] x'), ('[nul]'), ('[''1'' 2]'), ('[NULL,]')) t(v)
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+
+statement error
+SELECT '[''1'', ''bad'']'::JSON[]
+----
+Input: "bad"
+
+query T
+SELECT TRY_CAST(v AS JSON[])
+FROM (VALUES (1, '[''1'', ''bad'']'), (2, '[1, NULL]'), (3, '[''1'), (4, '[''1\'), (5, '[{"a": }, NULL]'),
+	(6, '[''NULL'']'), (7, '[Null]')) t(id, v)
+ORDER BY id
+----
+NULL
+[1, NULL]
+NULL
+NULL
+NULL
+NULL
+[NULL]
+
+statement error
+SELECT '[''1'', ''unterminated'::JSON[]
+----
+Malformed JSON at byte 19 of input: unexpected end of data
+
+statement error
+SELECT '[''1'', NULL x]'::JSON[]
+----
+Malformed JSON at byte 11 of input: unexpected character
+
+statement error
+SELECT '[''1\'::JSON[]
+----
+Malformed JSON at byte 4 of input: unexpected end of data
+
+statement error
+SELECT '[1, NULL, {"a": [1'::JSON[]
+----
+Malformed JSON at byte 18 of input: unexpected end of data
+
+statement error
+SELECT '[] x'::JSON[]
+----
+Malformed JSON at byte 3 of input: unexpected character
+
+query TT
+SELECT TRY_CAST(chr(11) || '[]' AS JSON[]), TRY_CAST(chr(11) || '[NULL]' AS JSON[])
+----
+[]	[NULL]
