@@ -487,6 +487,11 @@ bool Hugeint::TryCast(hugeint_t input, double &result) {
 
 template <>
 bool Hugeint::TryCast(hugeint_t input, long double &result) {
+	if (std::numeric_limits<long double>::digits <= std::numeric_limits<double>::digits) {
+		// a long double that is no wider than a double rounds once like one
+		result = HugeintToFloating<double>(input);
+		return true;
+	}
 	return CastBigintToFloating<long double>(input, result);
 }
 
