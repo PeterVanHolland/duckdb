@@ -1,5 +1,5 @@
 # name: test/optimizer/statistics/statistics_struct_field_null.test
-# description: A filter on a struct field that is true or NULL keeps the rows where only the field is NULL
+# description: A filter that is true or NULL becomes a NULL check of its column only when its NULLs are those of the column
 # group: [statistics]
 
 statement ok
@@ -40,6 +40,13 @@ query I
 SELECT id FROM strings WHERE (CASE WHEN id = 1 THEN 'a' END) IN ('a', 'b');
 ----
 1
+
+# a CASE can be true where the column is NULL
+query I
+SELECT id FROM strings WHERE (CASE WHEN y IS NULL THEN 'a' ELSE y END) IN ('a', 'b') ORDER BY id;
+----
+1
+2
 
 statement ok
 PRAGMA explain_output = OPTIMIZED_ONLY;
