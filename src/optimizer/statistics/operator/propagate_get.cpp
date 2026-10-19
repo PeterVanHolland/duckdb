@@ -144,11 +144,20 @@ static bool CanReplaceWithNotNull(const TableFilter &table_filter, const BaseSta
 	if (IsConstantOrNullFilter(table_filter)) {
 		return CanReplaceConstantOrNull(table_filter);
 	}
+	auto &expr_filter = table_filter.Cast<ExpressionFilter>();
 	// a struct field or a CASE can be NULL where the column is not
 	auto non_null_stats = stats.Copy();
 	non_null_stats.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
-	return table_filter.Cast<ExpressionFilter>().CheckStatistics(non_null_stats) ==
-	       FilterPropagateResult::FILTER_ALWAYS_TRUE;
+	if (expr_filter.CheckStatistics(non_null_stats) != FilterPropagateResult::FILTER_ALWAYS_TRUE) {
+		return false;
+	}
+	// a CASE can be true where the column is NULL
+	auto null_stats = stats.Copy();
+	null_stats.Set(StatsInfo::CAN_HAVE_NULL_VALUES);
+	null_stats.Set(StatsInfo::CANNOT_HAVE_VALID_VALUES);
+	auto null_result = expr_filter.CheckStatistics(null_stats);
+	return null_result == FilterPropagateResult::FILTER_ALWAYS_FALSE ||
+	       null_result == FilterPropagateResult::FILTER_FALSE_OR_NULL;
 }
 
 unique_ptr<NodeStatistics> StatisticsPropagator::PropagateStatistics(LogicalGet &get,
