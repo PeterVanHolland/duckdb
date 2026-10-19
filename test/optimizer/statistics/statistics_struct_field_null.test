@@ -4,7 +4,7 @@
 
 statement ok
 CREATE TABLE structs AS
-SELECT * FROM (VALUES (1, {'y': 'a', 'i': 1, 'b': true}), (2, {'y': NULL, 'i': NULL, 'b': NULL})) t(id, s);
+SELECT * FROM (VALUES (1, {'y': 'a', 'i': 1, 'b': true}), (2, {'y': NULL, 'i': NULL, 'b': NULL}), (3, NULL)) t(id, s);
 
 # selecting the whole struct keeps the filter on the struct column
 query II
@@ -47,6 +47,11 @@ SELECT id FROM strings WHERE (CASE WHEN y IS NULL THEN 'a' ELSE y END) IN ('a', 
 ----
 1
 2
+
+query I
+SELECT id FROM strings WHERE y IN ('a', 'b');
+----
+1
 
 statement ok
 PRAGMA explain_output = OPTIMIZED_ONLY;

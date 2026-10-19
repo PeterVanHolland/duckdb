@@ -144,7 +144,7 @@ static bool CanReplaceWithNotNull(const TableFilter &table_filter, const BaseSta
 	if (IsConstantOrNullFilter(table_filter)) {
 		return CanReplaceConstantOrNull(table_filter);
 	}
-	auto &expr_filter = table_filter.Cast<ExpressionFilter>();
+	auto &expr_filter = ExpressionFilter::GetExpressionFilter(table_filter, "CanReplaceWithNotNull");
 	// a struct field or a CASE can be NULL where the column is not
 	auto non_null_stats = stats.Copy();
 	non_null_stats.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
@@ -152,9 +152,7 @@ static bool CanReplaceWithNotNull(const TableFilter &table_filter, const BaseSta
 		return false;
 	}
 	// a CASE can be true where the column is NULL
-	auto null_stats = stats.Copy();
-	null_stats.Set(StatsInfo::CAN_HAVE_NULL_VALUES);
-	null_stats.Set(StatsInfo::CANNOT_HAVE_VALID_VALUES);
+	auto null_stats = BaseStatistics::FromConstant(Value(stats.GetType()));
 	auto null_result = expr_filter.CheckStatistics(null_stats);
 	return null_result == FilterPropagateResult::FILTER_ALWAYS_FALSE ||
 	       null_result == FilterPropagateResult::FILTER_FALSE_OR_NULL;
