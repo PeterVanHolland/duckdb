@@ -139,6 +139,18 @@ static bool CanReplaceConstantOrNull(const TableFilter &table_filter) {
 	return true;
 }
 
+//! Whether the filter is NULL only where the column is NULL, so a NULL check of the column can replace it
+static bool CanReplaceWithNotNull(const TableFilter &table_filter, const BaseStatistics &stats) {
+	if (IsConstantOrNullFilter(table_filter)) {
+		return CanReplaceConstantOrNull(table_filter);
+	}
+	// a struct field or a CASE can be NULL where the column is not
+	auto non_null_stats = stats.Copy();
+	non_null_stats.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
+	return table_filter.Cast<ExpressionFilter>().CheckStatistics(non_null_stats) ==
+	       FilterPropagateResult::FILTER_ALWAYS_TRUE;
+}
+
 unique_ptr<NodeStatistics> StatisticsPropagator::PropagateStatistics(LogicalGet &get,
                                                                      unique_ptr<LogicalOperator> &node_ptr) {
 	if (get.function.cardinality) {
@@ -191,7 +203,7 @@ unique_ptr<NodeStatistics> StatisticsPropagator::PropagateStatistics(LogicalGet 
 			removed_expressions = true;
 			break;
 		case FilterPropagateResult::FILTER_TRUE_OR_NULL: {
-			if (IsConstantOrNullFilter(filter) && !CanReplaceConstantOrNull(filter)) {
+			if (!CanReplaceWithNotNull(filter, stats)) {
 				break;
 			}
 			// filter is true or null; we can replace this with a not null filter
