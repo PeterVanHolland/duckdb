@@ -1,0 +1,78 @@
+# name: test/sql/catalog/nested_schema/nested_view_function.test
+# description: Views in an attached database calling functions of nested schemas of the view's own catalog
+# group: [nested_schema]
+
+# an in-memory default database allows nested schemas under every storage version
+statement ok
+ATTACH ':memory:' AS mem;
+
+statement ok
+USE mem;
+
+statement ok
+ATTACH '{TEST_DIR}/nested_view_function.db' AS db (STORAGE_VERSION 'v2.0.0');
+
+statement ok
+CREATE SCHEMA db.sales;
+
+statement ok
+CREATE SCHEMA db.sales.europe;
+
+# a schema with the name of the innermost schema, whose functions the views must not call
+statement ok
+CREATE SCHEMA db.europe;
+
+statement ok
+CREATE MACRO db.sales.europe.m() AS 1;
+
+statement ok
+CREATE MACRO db.europe.m() AS 999;
+
+statement ok
+CREATE MACRO db.sales.europe.t() AS TABLE SELECT 1 AS x;
+
+statement ok
+CREATE MACRO db.europe.t() AS TABLE SELECT 999 AS x;
+
+statement ok
+CREATE MACRO db.sales.europe.w(x) AS sum(x);
+
+statement ok
+CREATE MACRO db.europe.w(x) AS sum(x) * 999;
+
+statement ok
+CREATE TABLE db.sales.europe.numbers AS SELECT 5 AS i;
+
+statement ok
+CREATE VIEW db.v AS SELECT db.sales.europe.m() AS id;
+
+statement ok
+CREATE VIEW db.v_table AS SELECT x FROM db.sales.europe.t();
+
+statement ok
+CREATE VIEW db.v_window AS SELECT db.sales.europe.w(i) OVER () AS s FROM db.sales.europe.numbers;
+
+# the stored queries keep the whole schema path
+query I
+SELECT sql FROM duckdb_views() WHERE database_name = 'db' ORDER BY view_name;
+----
+CREATE VIEW v AS SELECT sales.europe.m() AS id;
+CREATE VIEW v_table AS SELECT x FROM sales.europe.t();
+CREATE VIEW v_window AS SELECT sales.europe.w(i) OVER () AS s FROM sales.europe.numbers;
+
+query III
+SELECT (SELECT id FROM db.v), (SELECT x FROM db.v_table), (SELECT s FROM db.v_window);
+----
+1	1	5
+
+# the views keep working when the database is attached under a different alias
+statement ok
+DETACH db;
+
+statement ok
+ATTACH '{TEST_DIR}/nested_view_function.db' AS other;
+
+query III
+SELECT (SELECT id FROM other.v), (SELECT x FROM other.v_table), (SELECT s FROM other.v_window);
+----
+1	1	5
