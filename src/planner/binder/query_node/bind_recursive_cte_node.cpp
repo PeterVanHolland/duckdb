@@ -53,6 +53,8 @@ BoundStatement Binder::BindNode(RecursiveCTENode &statement) {
 
 	// Create temporary binder to bind expressions
 	auto aggregate_binder = Binder::CreateBinder(context, nullptr);
+	// resolve names like the query does, for example with the search path of a view
+	aggregate_binder->entry_retriever.Inherit(entry_retriever);
 	ErrorData error;
 	FunctionBinder function_binder(*aggregate_binder);
 	aggregate_binder->bind_context.AddGenericBinding(setop_index, statement.ctename, result.names, result.types);
@@ -105,9 +107,9 @@ BoundStatement Binder::BindNode(RecursiveCTENode &statement) {
 			QueryErrorContext error_context(expr->GetQueryLocation());
 
 			auto function_name = func_expr.GetQualifiedName();
-			BindSchemaOrCatalog(function_name);
-			EntryLookupInfo function_lookup(CatalogType::AGGREGATE_FUNCTION_ENTRY, BindTableName(function_name),
-			                                error_context);
+			BindSchemaOrCatalog(entry_retriever, function_name);
+			EntryLookupInfo function_lookup(CatalogType::AGGREGATE_FUNCTION_ENTRY,
+			                                BindTableName(entry_retriever, function_name), error_context);
 			auto entry = GetCatalogEntry(function_lookup, OnEntryNotFound::RETURN_NULL);
 
 			if (!entry || entry->type != CatalogType::AGGREGATE_FUNCTION_ENTRY) {
