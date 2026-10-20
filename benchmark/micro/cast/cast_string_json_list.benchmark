@@ -1,0 +1,17 @@
+# name: benchmark/micro/cast/cast_string_json_list.benchmark
+# description: Cast string values to a list of JSON
+# group: [cast]
+
+name Cast VARCHAR -> JSON LIST
+group cast
+
+require json
+
+load
+CREATE TABLE varchars AS SELECT '[{"a": ' || i || ', "b": [1, 2, 3]}, ' || i || ', "x", null]' col FROM range(0, 4000000) tbl(i);
+
+run
+SELECT SUM(LEN(CAST(col AS JSON[]))) FROM varchars;
+
+result I
+16000000
