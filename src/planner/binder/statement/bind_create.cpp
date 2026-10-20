@@ -358,12 +358,31 @@ void Binder::BindView(ClientContext &context, const SelectStatement &stmt, const
 	view_binder->entry_retriever.SetSearchPath(std::move(view_search_path));
 
 	auto copy = stmt.Copy();
+	MarkViewReferences(*copy->Cast<SelectStatement>().node, catalog);
 	auto query_node = view_binder->Bind(*copy);
 	if (aliases.size() > query_node.names.size()) {
 		throw BinderException("More VIEW aliases than columns in query result");
 	}
 	result_types = query_node.types;
 	result_names = query_node.names;
+}
+
+static void MarkViewExpressionReferences(ParsedExpression &expr, Catalog &view_catalog) {
+	if (expr.GetExpressionClass() == ExpressionClass::SUBQUERY) {
+		Binder::MarkViewReferences(*expr.Cast<SubqueryExpression>().SubqueryMutable()->node, view_catalog);
+	}
+	ParsedExpressionIterator::EnumerateChildren(
+	    expr, [&](ParsedExpression &child) { MarkViewExpressionReferences(child, view_catalog); });
+}
+
+void Binder::MarkViewReferences(QueryNode &node, Catalog &view_catalog) {
+	ParsedExpressionIterator::EnumerateQueryNodeChildren(
+	    node, [&](unique_ptr<ParsedExpression> &child) { MarkViewExpressionReferences(*child, view_catalog); },
+	    [&](TableRef &ref) {
+		    if (ref.type == TableReferenceType::BASE_TABLE) {
+			    ref.Cast<BaseTableRef>().view_catalog = view_catalog;
+		    }
+	    });
 }
 
 void Binder::BindCreateViewInfo(CreateViewInfo &base) {

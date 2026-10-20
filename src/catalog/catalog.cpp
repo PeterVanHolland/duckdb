@@ -648,6 +648,18 @@ bool Catalog::CheckAmbiguousCatalogOrSchema(ClientContext &context, const Identi
 	return !!GetSchema(context, schema_lookup, OnEntryNotFound::RETURN_NULL);
 }
 
+bool Catalog::CheckAmbiguousCatalogOrSchemaPath(ClientContext &context, const vector<Identifier> &schema_path) {
+	D_ASSERT(!schema_path.empty());
+	if (schema_path.size() == 1) {
+		return CheckAmbiguousCatalogOrSchema(context, schema_path[0]);
+	}
+	if (Supports(RemoteCapability::IS_REMOTE)) {
+		// skip this check for remote catalogs
+		return false;
+	}
+	return !!GetSchema(GetCatalogTransaction(context), schema_path, OnEntryNotFound::RETURN_NULL);
+}
+
 //===--------------------------------------------------------------------===//
 // Lookup
 //===--------------------------------------------------------------------===//

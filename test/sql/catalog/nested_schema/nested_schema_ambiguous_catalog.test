@@ -1,0 +1,194 @@
+# name: test/sql/catalog/nested_schema/nested_schema_ambiguous_catalog.test
+# description: A table of a view that names both an attached database and a nested schema of its catalog is ambiguous
+# group: [nested_schema]
+
+statement ok
+ATTACH ':memory:' AS lake;
+
+statement ok
+CREATE SCHEMA lake.sales;
+
+statement ok
+CREATE SCHEMA lake.sales.europe;
+
+statement ok
+CREATE TABLE lake.sales.europe.orders AS SELECT 1 AS id;
+
+statement ok
+CREATE VIEW lake.v AS SELECT * FROM lake.sales.europe.orders;
+
+statement ok
+CREATE VIEW lake.cv AS WITH used AS (SELECT * FROM lake.sales.europe.orders) SELECT id FROM used;
+
+statement ok
+CREATE MACRO pass(x) AS TABLE SELECT x AS id;
+
+statement ok
+CREATE MACRO identity_arg(x) AS x;
+
+statement ok
+CREATE VIEW lake.av AS SELECT * FROM pass((SELECT id FROM lake.sales.europe.orders));
+
+statement ok
+CREATE VIEW lake.iv AS SELECT identity_arg((SELECT id FROM lake.sales.europe.orders)) AS id;
+
+statement ok
+CREATE VIEW lake.colv AS SELECT COLUMNS(*) + (SELECT id FROM lake.sales.europe.orders) AS id FROM (VALUES (0)) t(x);
+
+statement ok
+CREATE VIEW lake.uv AS WITH unused AS (SELECT * FROM lake.sales.europe.orders) SELECT 42 AS id;
+
+statement ok
+CREATE VIEW lake.nuv AS SELECT * FROM (WITH unused AS MATERIALIZED (SELECT * FROM lake.sales.europe.orders) SELECT 42 AS id) s;
+
+statement ok
+CREATE TABLE lake.x AS SELECT 42 AS id;
+
+statement ok
+CREATE VIEW lake.sv AS WITH a AS (SELECT * FROM lake.x), x AS (SELECT * FROM lake.sales.europe.orders) SELECT * FROM a;
+
+statement ok
+CREATE MACRO keep42(x) AS 42;
+
+statement ok
+CREATE VIEW lake.kv AS SELECT keep42((SELECT id FROM lake.sales.europe.orders)) AS id;
+
+query IIIIII
+SELECT (SELECT id FROM lake.v), (SELECT id FROM lake.cv), (SELECT id FROM lake.uv), (SELECT id FROM lake.av),
+       (SELECT id FROM lake.iv), (SELECT id FROM lake.colv);
+----
+1	1	42	1	1	1
+
+statement ok
+ATTACH ':memory:' AS sales;
+
+statement ok
+CREATE SCHEMA sales.europe;
+
+statement ok
+CREATE TABLE sales.europe.orders AS SELECT 999 AS id;
+
+# the views store sales.europe.orders, which now also names the attached database
+statement error
+SELECT id FROM lake.v;
+----
+Ambiguous reference to catalog or schema "sales" in a view of catalog lake
+
+statement error
+SELECT id FROM lake.cv;
+----
+Ambiguous reference to catalog or schema "sales"
+
+statement error
+SELECT id FROM lake.av;
+----
+Ambiguous reference to catalog or schema "sales"
+
+statement error
+SELECT id FROM lake.iv;
+----
+Ambiguous reference to catalog or schema "sales"
+
+statement error
+SELECT id FROM lake.colv;
+----
+Ambiguous reference to catalog or schema "sales"
+
+
+statement error
+DESCRIBE lake.v;
+----
+Ambiguous reference to catalog or schema "sales"
+
+statement error
+CREATE VIEW lake.v2 AS SELECT * FROM lake.sales.europe.orders;
+----
+Ambiguous reference to catalog or schema "sales"
+
+# a CTE or a macro argument that the view does not read is never bound
+query IIII
+SELECT (SELECT id FROM lake.uv), (SELECT id FROM lake.nuv), (SELECT id FROM lake.sv), (SELECT id FROM lake.kv);
+----
+42	42	42	42
+
+# definitions that are not bound are not checked
+statement ok
+CREATE VIEW IF NOT EXISTS lake.v AS SELECT * FROM lake.sales.europe.orders;
+
+statement ok
+CREATE VIEW lake.dfv WITH (DEFER_BINDING) AS SELECT * FROM lake.sales.europe.orders;
+
+query II
+SELECT (SELECT id FROM lake.sales.europe.orders), (SELECT id FROM sales.europe.orders);
+----
+1	999
+
+# a view over another database whose name is only a schema of the view's catalog
+statement ok
+ATTACH ':memory:' AS other;
+
+statement ok
+CREATE SCHEMA other.x;
+
+statement ok
+CREATE TABLE other.x.t AS SELECT 7 AS id;
+
+statement ok
+CREATE SCHEMA lake.other;
+
+statement ok
+CREATE VIEW lake.ov AS SELECT * FROM other.x.t;
+
+# a dot call on a column of that name
+statement ok
+CREATE VIEW lake.dv AS SELECT sales.europe.lower() AS s FROM (SELECT 'ABC' AS europe) AS sales;
+
+query II
+SELECT (SELECT id FROM lake.ov), (SELECT s FROM lake.dv);
+----
+7	abc
+
+# macro bodies and query strings keep the catalog names they were written with
+statement ok
+ATTACH ':memory:' AS q;
+
+statement ok
+CREATE SCHEMA q.q;
+
+statement ok
+CREATE SCHEMA q.q.main;
+
+statement ok
+CREATE TABLE q.main.t AS SELECT 1 AS id;
+
+statement ok
+CREATE MACRO q.main.tm() AS TABLE SELECT * FROM q.main.t;
+
+statement ok
+CREATE MACRO q.main.sm() AS (SELECT id FROM q.main.t);
+
+statement ok
+CREATE VIEW q.main.tv AS SELECT * FROM q.main.tm();
+
+statement ok
+CREATE VIEW q.main.sv AS SELECT q.main.sm() AS id;
+
+statement ok
+CREATE VIEW q.main.qv AS SELECT * FROM query('SELECT id FROM q.main.t');
+
+query III
+SELECT (SELECT id FROM q.main.tv), (SELECT id FROM q.main.sv), (SELECT id FROM q.main.qv);
+----
+1	1	1
+
+# a name that keeps the catalog of the view
+statement ok
+CREATE VIEW q.main.pv AS PIVOT q.main.t ON id IN (1) USING count(*);
+
+statement ok
+CREATE VIEW q.main.descv AS DESCRIBE q.main.t;
+
+query II
+SELECT (SELECT "1" FROM q.main.pv), (SELECT column_name FROM q.main.descv);
+----
+1	id
