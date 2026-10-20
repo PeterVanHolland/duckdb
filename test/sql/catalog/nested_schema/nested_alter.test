@@ -196,7 +196,7 @@ db2	b	tt2
 statement ok
 USE memory;
 
-# COMMENT ON with a catalog-qualified nested name
+# COMMENT ON with the catalog in front of a nested schema
 
 statement ok
 CREATE VIEW db2.a.b.vv AS SELECT 1 AS x;
