@@ -1,0 +1,92 @@
+# name: test/sql/types/hugeint/test_hugeint_floating_rounding.test
+# description: Casting HUGEINT and UHUGEINT to DOUBLE and FLOAT rounds once, like parsing the value
+# group: [hugeint]
+
+query III
+SELECT '-9007199254740994'::HUGEINT::DOUBLE = '-9007199254740994'::DOUBLE,
+       '-9007199254740994'::DECIMAL(38,0)::DOUBLE = '-9007199254740994'::DOUBLE,
+       '-18446744073709551616'::HUGEINT::DOUBLE = '-18446744073709551616'::DOUBLE
+----
+true	true	true
+
+# between -2^64 and -2^53
+query II
+SELECT count(*) FILTER (WHERE h::DOUBLE <> h::VARCHAR::DOUBLE),
+       count(*) FILTER (WHERE h::DECIMAL(38,0)::DOUBLE <> h::VARCHAR::DOUBLE)
+FROM (SELECT -(9007199254740992 + range * 7)::HUGEINT AS h FROM range(100000))
+----
+0	0
+
+# beyond 2^64 in either direction
+query III
+SELECT count(*) FILTER (WHERE h::DOUBLE <> h::VARCHAR::DOUBLE),
+       count(*) FILTER (WHERE (-h)::DOUBLE <> (-h)::VARCHAR::DOUBLE),
+       count(*) FILTER (WHERE h::UHUGEINT::DOUBLE <> h::VARCHAR::DOUBLE)
+FROM (SELECT ((1 + range % 1000)::HUGEINT << 64) + (18446744073709551615::HUGEINT - (range * 4099)::HUGEINT) AS h
+      FROM range(100000))
+----
+0	0	0
+
+query III
+SELECT count(*) FILTER (WHERE h::DOUBLE <> h::VARCHAR::DOUBLE),
+       count(*) FILTER (WHERE (-h)::DOUBLE <> (-h)::VARCHAR::DOUBLE),
+       count(*) FILTER (WHERE (h::UHUGEINT * 2)::DOUBLE <> (h::UHUGEINT * 2)::VARCHAR::DOUBLE)
+FROM (SELECT 170141183460469231731687303715884105727::HUGEINT - range::HUGEINT * 1234567891234567 AS h
+      FROM range(100000))
+----
+0	0	0
+
+# 2^64 + 2^40 + 1 is just above the halfway point of two floats, which rounding through a double loses
+query III
+SELECT h::FLOAT = h::VARCHAR::FLOAT, (-h)::FLOAT = (-h)::VARCHAR::FLOAT, h::UHUGEINT::FLOAT = h::VARCHAR::FLOAT
+FROM (SELECT 18446744073709551616::HUGEINT + 1099511627776 + 1 AS h)
+----
+true	true	true
+
+query IIIII
+SELECT (-170141183460469231731687303715884105728)::HUGEINT::DOUBLE = '-170141183460469231731687303715884105728'::DOUBLE,
+       170141183460469231731687303715884105727::HUGEINT::DOUBLE = '170141183460469231731687303715884105727'::DOUBLE,
+       340282366920938463463374607431768211455::UHUGEINT::DOUBLE = '340282366920938463463374607431768211455'::DOUBLE,
+       (-1)::HUGEINT::DOUBLE, 0::UHUGEINT::DOUBLE
+----
+true	true	true	-1.0	0.0
+
+# just below, at and just above the halfway points between two doubles and two floats, for every bit length
+query IIII
+SELECT count(*) FILTER (WHERE h::DOUBLE <> h::VARCHAR::DOUBLE),
+       count(*) FILTER (WHERE (-h)::DOUBLE <> (-h)::VARCHAR::DOUBLE),
+       count(*) FILTER (WHERE h::UHUGEINT::DOUBLE <> h::VARCHAR::DOUBLE),
+       count(*)
+FROM (SELECT (1::HUGEINT << k) + (t::HUGEINT << (k - 53)) + d AS h
+      FROM range(53, 127) k(k), (VALUES (1), (3)) t(t), (VALUES (-1), (0), (1)) d(d))
+----
+0	0	0	444
+
+query I
+SELECT typeof((1::HUGEINT << 100) + 1)
+----
+HUGEINT
+
+query III
+SELECT count(*) FILTER (WHERE h::DOUBLE <> h::VARCHAR::DOUBLE), count(DISTINCT h), any_value(typeof(h))
+FROM (SELECT (1::UHUGEINT << 127) + (t::UHUGEINT << 74) - 1::UHUGEINT + d::UHUGEINT AS h
+      FROM (VALUES (1), (3)) t(t), range(3) d(d))
+----
+0	6	UHUGEINT
+
+query IIII
+SELECT count(*) FILTER (WHERE h::FLOAT <> h::VARCHAR::FLOAT),
+       count(*) FILTER (WHERE (-h)::FLOAT <> (-h)::VARCHAR::FLOAT),
+       count(*) FILTER (WHERE h::UHUGEINT::FLOAT <> h::VARCHAR::FLOAT),
+       count(*)
+FROM (SELECT (1::HUGEINT << k) + (t::HUGEINT << (k - 24)) + d AS h
+      FROM range(24, 127) k(k), (VALUES (1), (3)) t(t), (VALUES (-1), (0), (1)) d(d))
+----
+0	0	0	618
+
+# the minimum and the largest UHUGEINT below the float overflow
+query II
+SELECT (-170141183460469231731687303715884105728)::HUGEINT::FLOAT = '-170141183460469231731687303715884105728'::FLOAT,
+       340282356779733661637539395458142568447::UHUGEINT::FLOAT = '340282346638528859811704183484516925440'::FLOAT
+----
+true	true
