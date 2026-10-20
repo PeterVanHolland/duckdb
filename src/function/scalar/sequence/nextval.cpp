@@ -62,6 +62,7 @@ struct NextValLocalState : public FunctionLocalState {
 
 	DuckTransaction &transaction;
 	SequenceCatalogEntry &sequence;
+	bool write_registered = false;
 };
 
 template <class T>
@@ -115,6 +116,18 @@ void NextValFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 
 		int64_t value = new_val_entries ? (*new_val_entries)[i].GetValue() : 0;
 		bool is_called = is_called_entries ? (*is_called_entries)[i].GetValue() : true;
+		if constexpr (!std::is_same_v<OP, CurrentSequenceValueOperator>) {
+			if (!lstate.write_registered) {
+				// this can also run while a statement is bound, before the statement registers its writes
+				auto &db = lstate.sequence.catalog.GetAttached();
+				if (db.IsReadOnly()) {
+					throw InvalidInputException("Cannot execute %s on database %s which is attached in read-only mode!",
+					                            func_expr.Function().GetName(), db.GetName());
+				}
+				MetaTransaction::Get(state.GetContext()).ModifyDatabase(db, DatabaseModificationType::SEQUENCE);
+				lstate.write_registered = true;
+			}
+		}
 		// get the next value from the sequence
 		result_data.WriteValue(OP::Operation(lstate.transaction, lstate.sequence, value, is_called));
 	}
