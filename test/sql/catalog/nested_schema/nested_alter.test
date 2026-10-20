@@ -195,3 +195,51 @@ db2	b	tt2
 
 statement ok
 USE memory;
+
+# COMMENT ON with a catalog-qualified nested name
+
+statement ok
+CREATE VIEW db2.a.b.vv AS SELECT 1 AS x;
+
+foreach mode none copy_statement reparse_statement
+
+statement ok
+SET debug_verify_statement='{mode}';
+
+statement ok
+COMMENT ON TABLE db2.a.b.tt2 IS 'qualified table {mode}';
+
+statement ok
+COMMENT ON VIEW db2.a.b.vv IS 'qualified view {mode}';
+
+statement ok
+COMMENT ON COLUMN db2.a.b.tt2.x IS 'qualified table column {mode}';
+
+statement ok
+COMMENT ON COLUMN db2.a.b.vv.x IS 'qualified view column {mode}';
+
+statement ok
+RESET debug_verify_statement;
+
+query III
+SELECT schema_name, table_name, comment = 'qualified table {mode}' FROM duckdb_tables() WHERE database_name = 'db2'
+UNION ALL
+SELECT schema_name, view_name, comment = 'qualified view {mode}' FROM duckdb_views() WHERE database_name = 'db2'
+ORDER BY ALL;
+----
+b	tt2	true
+b	vv	true
+
+query III
+SELECT table_name, column_name, comment = 'qualified ' || if(table_name = 'tt2', 'table', 'view') || ' column {mode}'
+FROM duckdb_columns() WHERE database_name = 'db2' ORDER BY ALL;
+----
+tt2	x	true
+vv	x	true
+
+endloop
+
+statement error
+COMMENT ON TABLE db2.a.nope.tt2 IS 'x';
+----
+<REGEX>:.*does not exist.*
