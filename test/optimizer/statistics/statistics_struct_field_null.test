@@ -1,0 +1,63 @@
+# name: test/optimizer/statistics/statistics_struct_field_null.test
+# description: A filter that is true or NULL becomes a NULL check of its column only when its NULLs are those of the column
+# group: [statistics]
+
+statement ok
+CREATE TABLE structs AS
+SELECT * FROM (VALUES (1, {'y': 'a', 'i': 1, 'b': true}), (2, {'y': NULL, 'i': NULL, 'b': NULL}), (3, NULL)) t(id, s);
+
+# selecting the whole struct keeps the filter on the struct column
+query II
+SELECT id, s FROM structs WHERE s.y IN ('a', 'b');
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE s.y LIKE 'a%';
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE s.i IN (1, 2);
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE s.b;
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE s.y IN ('a', 'b') OR s.y LIKE 'a%';
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+statement ok
+CREATE TABLE strings AS SELECT * FROM (VALUES (1, 'a'), (2, NULL)) t(id, y);
+
+# a CASE can be NULL where the column is not
+query I
+SELECT id FROM strings WHERE (CASE WHEN id = 1 THEN 'a' END) IN ('a', 'b');
+----
+1
+
+# a CASE can be true where the column is NULL
+query I
+SELECT id FROM strings WHERE (CASE WHEN y IS NULL THEN 'a' ELSE y END) IN ('a', 'b') ORDER BY id;
+----
+1
+2
+
+query I
+SELECT id FROM strings WHERE y IN ('a', 'b');
+----
+1
+
+statement ok
+PRAGMA explain_output = OPTIMIZED_ONLY;
+
+# a filter on the column itself is still replaced with a NULL check
+query II
+EXPLAIN SELECT id FROM strings WHERE y IN ('a', 'b');
+----
+logical_opt	<REGEX>:.*y IS NOT NULL.*
