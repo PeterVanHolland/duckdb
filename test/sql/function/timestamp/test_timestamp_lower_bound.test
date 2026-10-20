@@ -27,6 +27,16 @@ SELECT to_timestamp(-9223372036854.775808)
 ----
 <REGEX>:.*(Out of Range|Conversion) Error.*
 
+statement error
+SELECT to_timestamp(-9223372022400.01)
+----
+Conversion Error: Epoch seconds out of range for TIMESTAMP WITH TIME ZONE
+
+statement error
+SELECT to_timestamp(x) FROM (VALUES (0), (-9223372030000)) t(x)
+----
+Conversion Error: Epoch seconds out of range for TIMESTAMP WITH TIME ZONE
+
 # the minimum timestamp is still accepted
 query I
 SELECT epoch_ms(-9223372022400000)::VARCHAR
