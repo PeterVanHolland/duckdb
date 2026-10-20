@@ -262,6 +262,8 @@ public:
 	                                                      OnEntryNotFound if_not_found);
 	//! Overloadable method for giving warnings on ambiguous naming id.tab due to a database and schema with name id
 	DUCKDB_API virtual bool CheckAmbiguousCatalogOrSchema(ClientContext &context, const Identifier &schema);
+	//! Whether a qualifier id.nested.tab is ambiguous due to a database id and a (nested) schema path id.nested
+	DUCKDB_API bool CheckAmbiguousCatalogOrSchemaPath(ClientContext &context, const vector<Identifier> &schema_path);
 
 	DUCKDB_API SchemaCatalogEntry &GetSchema(ClientContext &context, const Identifier &schema);
 	DUCKDB_API SchemaCatalogEntry &GetSchema(CatalogTransaction transaction, const Identifier &schema);

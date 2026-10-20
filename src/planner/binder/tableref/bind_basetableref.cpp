@@ -1,5 +1,7 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/view_catalog_entry.hpp"
+#include "duckdb/common/sql_identifier.hpp"
+#include "duckdb/main/database_manager.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/config.hpp"
@@ -21,6 +23,24 @@
 #include "duckdb/planner/operator/logical_secure_view.hpp"
 
 namespace duckdb {
+
+static void ThrowIfAmbiguousViewReference(ClientContext &context, const QualifiedName &name, Catalog &view_catalog) {
+	auto path = name.Path();
+	if (path.size() < 3) {
+		// a lone qualifier is checked by BindSchemaOrCatalog
+		return;
+	}
+	path.pop_back();
+	// a name that still holds the view's own catalog cannot reach another database
+	if (path[0] == view_catalog.GetName() || !DatabaseManager::Get(context).GetDatabase(context, path[0])) {
+		return;
+	}
+	if (view_catalog.CheckAmbiguousCatalogOrSchemaPath(context, path)) {
+		throw BinderException("Ambiguous reference to catalog or schema %s in a view of catalog %s, which stores the "
+		                      "references to its own schemas without the catalog name",
+		                      path[0], SQLIdentifier(view_catalog.GetName()));
+	}
+}
 
 static bool TryLoadExtensionForReplacementScan(ClientContext &context, const string &table_name) {
 	auto lower_name = StringUtil::Lower(table_name);
@@ -175,6 +195,9 @@ BoundStatement Binder::Bind(BaseTableRef &ref) {
 	auto at_clause = BindAtClause(ref.at_clause);
 	auto entry_at_clause = at_clause ? at_clause.get() : entry_retriever.GetAtClause();
 	EntryLookupInfo table_lookup(CatalogType::TABLE_ENTRY, QualifiedName(ref.Table()), entry_at_clause, error_context);
+	if (ref.view_catalog) {
+		ThrowIfAmbiguousViewReference(context, ref.GetQualifiedName(), *ref.view_catalog);
+	}
 	// resolve the catalog/schema qualification for the lookup only - the reference itself keeps the name as written,
 	// which is what name extraction and replacement scans report
 	auto bound_name = BindTableName(entry_retriever, ref.GetQualifiedName());
@@ -314,6 +337,7 @@ BoundStatement Binder::Bind(BaseTableRef &ref) {
 
 		// The view may contain CTEs, but maybe only in the cte_map, so we need create CTE nodes for them
 		auto query = view_catalog_entry.GetQuery().Copy();
+		MarkViewReferences(*query->Cast<SelectStatement>().node, view_catalog_entry.ParentCatalog());
 		SubqueryRef subquery(unique_ptr_cast<SQLStatement, SelectStatement>(std::move(query)));
 
 		subquery.alias = ref.alias;
