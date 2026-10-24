@@ -79,6 +79,17 @@ copy (select range as i, range as j from range(10)) to '{TEST_DIR}/my.parquet' (
 ----
 Binder Error
 
+# field ids cannot be negative, also nested ones
+statement error
+copy (select range as i from range(10)) to '{TEST_DIR}/my.parquet' (FIELD_IDS {i:-1})
+----
+Negative field_id -1 found in FIELD_IDS
+
+statement error
+copy (select {'a': range} as s from range(10)) to '{TEST_DIR}/my.parquet' (FIELD_IDS {s:{__duckdb_field_id:1,a:-5}})
+----
+Negative field_id -5 found in FIELD_IDS
+
 # we don't have to supply a field_id for all columns
 statement ok
 copy (select range as i, range as j from range(10)) to '{TEST_DIR}/my.parquet' (FIELD_IDS {i:42})
