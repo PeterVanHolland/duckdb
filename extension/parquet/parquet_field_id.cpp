@@ -133,6 +133,9 @@ void FieldID::GetFieldIDs(const Value &field_ids_value, ChildFieldIDs &field_ids
 		FieldID field_id;
 		if (field_id_value) {
 			Value field_id_integer_value = field_id_value->DefaultCastAs(LogicalType::INTEGER);
+			if (IntegerValue::Get(field_id_integer_value) < 0) {
+				throw BinderException("Negative field_id %s found in FIELD_IDS", field_id_integer_value.ToString());
+			}
 			const uint32_t field_id_int = IntegerValue::Get(field_id_integer_value);
 			if (!unique_field_ids.insert(field_id_int).second) {
 				throw BinderException("Duplicate field_id %s found in FIELD_IDS", field_id_integer_value.ToString());
