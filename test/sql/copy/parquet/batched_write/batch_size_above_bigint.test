@@ -1,0 +1,29 @@
+# name: test/sql/copy/parquet/batched_write/batch_size_above_bigint.test
+# description: Batched COPY to Parquet with a row group size above the largest BIGINT
+# group: [batched_write]
+
+require parquet
+
+statement ok
+SET preserve_insertion_order=true
+
+statement ok
+CREATE TABLE t AS SELECT range AS id FROM range(300000)
+
+statement ok
+COPY (SELECT * FROM t UNION ALL SELECT * FROM t) TO '{TEST_DIR}/batch_size_above_bigint.parquet'
+(FORMAT parquet, ROW_GROUP_SIZE 9223372036854775808)
+
+query II
+SELECT count(*), sum(id) FROM '{TEST_DIR}/batch_size_above_bigint.parquet'
+----
+600000	89999700000
+
+statement ok
+COPY (SELECT * FROM t UNION ALL SELECT * FROM t) TO '{TEST_DIR}/batch_size_bytes_above_bigint.parquet'
+(FORMAT parquet, ROW_GROUP_SIZE_BYTES '10000000TB')
+
+query II
+SELECT count(*), sum(id) FROM '{TEST_DIR}/batch_size_bytes_above_bigint.parquet'
+----
+600000	89999700000

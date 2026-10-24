@@ -427,13 +427,13 @@ static bool CorrectSizeForBatch(const ColumnDataCollection &batch, const optiona
 		return true;
 	}
 
-	const auto size_vector_diff =
-	    NumericCast<int64_t>(batch.Count()) - NumericCast<int64_t>(batch_size.GetIndex()) / STANDARD_VECTOR_SIZE;
+	const auto size_vector_diff = NumericCast<int64_t>(batch.Count()) -
+	                              CopyFunctionBatchAnalyzer::SizeAsInt64(batch_size.GetIndex()) / STANDARD_VECTOR_SIZE;
 
 	int64_t size_bytes_vector_diff = 0;
 	if (batch_size_bytes.IsValid()) {
-		const auto size_bytes_overshoot =
-		    NumericCast<int64_t>(batch.SizeInBytes()) - NumericCast<int64_t>(batch_size_bytes.GetIndex());
+		const auto size_bytes_overshoot = NumericCast<int64_t>(batch.SizeInBytes()) -
+		                                  CopyFunctionBatchAnalyzer::SizeAsInt64(batch_size_bytes.GetIndex());
 		const auto bytes_per_tuple = NumericCast<int64_t>(batch.SizeInBytes() / batch.Count()) + 1;
 		size_bytes_vector_diff = size_bytes_overshoot / bytes_per_tuple / STANDARD_VECTOR_SIZE;
 	}
