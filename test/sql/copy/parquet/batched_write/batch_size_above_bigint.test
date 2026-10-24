@@ -8,6 +8,9 @@ statement ok
 SET preserve_insertion_order=true
 
 statement ok
+SET threads=4
+
+statement ok
 CREATE TABLE t AS SELECT range AS id FROM range(300000)
 
 statement ok
@@ -27,3 +30,16 @@ query II
 SELECT count(*), sum(id) FROM '{TEST_DIR}/batch_size_bytes_above_bigint.parquet'
 ----
 600000	89999700000
+
+# a reachable byte limit repartitions batches before the end, with the row limit above the largest BIGINT
+statement ok
+CREATE TABLE wide AS SELECT range AS id, repeat('x', 100) || range AS s FROM range(500000)
+
+statement ok
+COPY (SELECT * FROM wide UNION ALL SELECT * FROM wide) TO '{TEST_DIR}/batch_size_above_bigint_bytes_limit.parquet'
+(FORMAT parquet, ROW_GROUP_SIZE 9223372036854775808, ROW_GROUP_SIZE_BYTES '1MB')
+
+query II
+SELECT count(*), sum(id) FROM '{TEST_DIR}/batch_size_above_bigint_bytes_limit.parquet'
+----
+1000000	249999500000
