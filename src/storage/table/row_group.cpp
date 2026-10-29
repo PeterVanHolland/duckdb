@@ -869,7 +869,7 @@ bool RowGroup::RegisterScanIO(CollectionScanState &state, idx_t row_count, Prefe
 
 void RowGroup::PrefetchScanIO(CollectionScanState &state, idx_t row_count) const {
 	PrefetchState prefetch_state;
-	if (!RegisterScanIO(state, row_count, prefetch_state)) {
+	if (row_count == 0 || !RegisterScanIO(state, row_count, prefetch_state)) {
 		return;
 	}
 	GetBlockManager().buffer_manager.Prefetch(state.context, prefetch_state.blocks);
@@ -877,7 +877,7 @@ void RowGroup::PrefetchScanIO(CollectionScanState &state, idx_t row_count) const
 
 vector<unique_ptr<AsyncTask>> RowGroup::CollectScanIOTasks(CollectionScanState &state, idx_t row_count) const {
 	PrefetchState prefetch_state;
-	if (!RegisterScanIO(state, row_count, prefetch_state)) {
+	if (row_count == 0 || !RegisterScanIO(state, row_count, prefetch_state)) {
 		return vector<unique_ptr<AsyncTask>>();
 	}
 	return GetBlockManager().buffer_manager.CreatePrefetchTasks(state.context, prefetch_state.blocks);
@@ -886,6 +886,9 @@ vector<unique_ptr<AsyncTask>> RowGroup::CollectScanIOTasks(CollectionScanState &
 idx_t RowGroup::PrefetchRowCount(CollectionScanState &state) {
 	const idx_t start_row = state.vector_index * STANDARD_VECTOR_SIZE;
 	idx_t end_row = MinValue<idx_t>(state.max_row_group_row, this->count);
+	if (end_row <= start_row) {
+		return 0;
+	}
 	auto context = state.context.GetClientContext();
 	for (auto &entry : state.GetFilterInfo().GetFilterList()) {
 		if (entry.IsAlwaysTrue() || entry.table_column_index.IsPushdownExtract()) {
@@ -973,6 +976,8 @@ void RowGroup::ProcessPreparedScan(ScanOptions options, CollectionScanState &sta
 	// a reverted append since the vector was prepared can have removed rows of it, which are not scanned
 	const idx_t remaining_rows = state.RemainingAssignmentRows();
 	if (remaining_rows == 0) {
+		// the assignment ends here, also when the row group grows again
+		state.max_row_group_row = state.vector_index * STANDARD_VECTOR_SIZE;
 		FinishVector(state);
 		return;
 	}
@@ -982,6 +987,16 @@ void RowGroup::ProcessPreparedScan(ScanOptions options, CollectionScanState &sta
 	bool has_sample_selection = prepared.has_sample_selection;
 	idx_t sample_count = prepared.sample_count;
 	auto &sample_sel = prepared.sample_sel;
+	if (has_sample_selection && max_count < prepared.max_count) {
+		// the sample was drawn from the rows the vector had when it was prepared
+		idx_t kept = 0;
+		for (idx_t i = 0; i < sample_count; i++) {
+			if (sample_sel.get_index(i) < max_count) {
+				sample_sel.set_index(kept++, sample_sel.get_index(i));
+			}
+		}
+		sample_count = kept;
+	}
 
 	bool has_filters = filter_info.HasFilters();
 	if (count == max_count && !has_filters) {
@@ -1268,6 +1283,8 @@ void RowGroup::RevertAppend(idx_t new_count) {
 	if (new_count > this->count) {
 		throw InternalException("RowGroup::RevertAppend new_count out of range");
 	}
+	// publish the smaller count first, scans bound themselves by it before they read the version info and columns
+	SetCount(new_count);
 	auto &vinfo = GetOrCreateVersionInfo();
 	vinfo.RevertAppend(new_count);
 	for (auto &column : GetColumns()) {
@@ -1276,7 +1293,6 @@ void RowGroup::RevertAppend(idx_t new_count) {
 	if (transient) {
 		*transient = SuballocationBlock();
 	}
-	SetCount(new_count);
 	Verify();
 }
 
