@@ -827,6 +827,12 @@ bool RowGroup::CheckZonemapSegments(CollectionScanState &state) {
 		if (target_row >= state.max_row) {
 			target_row = state.max_row;
 		}
+		// a reverted append publishes the smaller row group count before it truncates the segments
+		if (this->count <= row_start) {
+			// the rows of the segment are gone, the assignment ends at the live count
+			return false;
+		}
+		target_row = MinValue<idx_t>(target_row, this->count);
 		D_ASSERT(target_row >= row_start);
 		D_ASSERT(target_row <= row_start + this->count);
 		// current_segment->GetRowStart() is already row-group-relative, and state.vector_index uses the same
