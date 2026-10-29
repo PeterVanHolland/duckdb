@@ -885,7 +885,7 @@ vector<unique_ptr<AsyncTask>> RowGroup::CollectScanIOTasks(CollectionScanState &
 
 idx_t RowGroup::PrefetchRowCount(CollectionScanState &state) {
 	const idx_t start_row = state.vector_index * STANDARD_VECTOR_SIZE;
-	idx_t end_row = state.max_row_group_row;
+	idx_t end_row = MinValue<idx_t>(state.max_row_group_row, this->count);
 	auto context = state.context.GetClientContext();
 	for (auto &entry : state.GetFilterInfo().GetFilterList()) {
 		if (entry.IsAlwaysTrue() || entry.table_column_index.IsPushdownExtract()) {
@@ -970,8 +970,15 @@ void RowGroup::ProcessPreparedScan(ScanOptions options, CollectionScanState &sta
 	auto &transaction = options.transaction;
 	auto &prepared = state.prepared_vector;
 	D_ASSERT(prepared.prepare_state != VectorPrepareState::NONE);
-	idx_t max_count = prepared.max_count;
+	// a reverted append since the vector was prepared can have removed rows of it, which are not scanned
+	const idx_t remaining_rows = state.RemainingAssignmentRows();
+	if (remaining_rows == 0) {
+		FinishVector(state);
+		return;
+	}
+	idx_t max_count = MinValue<idx_t>(prepared.max_count, remaining_rows);
 	idx_t count = prepared.visible_count;
+	D_ASSERT(count <= max_count);
 	bool has_sample_selection = prepared.has_sample_selection;
 	idx_t sample_count = prepared.sample_count;
 	auto &sample_sel = prepared.sample_sel;
