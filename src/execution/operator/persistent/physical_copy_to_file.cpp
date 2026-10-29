@@ -3701,7 +3701,6 @@ unique_ptr<const PartitionedCopyInput> PartitionedCopy::ConstructInput() const {
 	                          op.children.empty() ? 0 : op.children[0].get().estimated_cardinality);
 	unique_ptr<const SortStrategy> order_sort;
 	if (!op.order_columns.empty()) {
-		// a delayed partition holds the rows of one partition, so it only needs the order columns
 		vector<unique_ptr<Expression>> no_partition_bys;
 		vector<unique_ptr<BaseStatistics>> no_stats;
 		order_sort = SortStrategy::Factory(context, no_partition_bys, op.order_columns, op.expected_types, no_stats, 0);
