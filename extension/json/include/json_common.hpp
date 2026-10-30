@@ -132,6 +132,8 @@ public:
 	//! Deep copy of a mutable value - equivalent to yyjson_mut_val_mut_copy, but iterative instead of recursive, so
 	//! that deeply nested values do not overflow the stack
 	static yyjson_mut_val *MutValMutCopy(yyjson_mut_doc *doc, yyjson_mut_val *val);
+	//! Skip over a single JSON value without parsing it, leaving pos just after it
+	static bool SkipValue(const char *buffer_ptr, const idx_t buffer_size, idx_t &pos);
 
 	//! Maximum recursion depth for recursive functions
 	static constexpr idx_t MAX_RECURSION_DEPTH = 128;

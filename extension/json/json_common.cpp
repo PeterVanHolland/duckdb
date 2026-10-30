@@ -430,6 +430,55 @@ void JSONCommon::GetWildcardPath(yyjson_val *val, const char *ptr, const idx_t &
 	GetWildcardPathInternal(val, ptr, end, vals);
 }
 
+bool JSONCommon::SkipValue(const char *buffer_ptr, const idx_t buffer_size, idx_t &pos) {
+	const auto skip_string = [&]() {
+		pos++; // opening quote
+		while (pos < buffer_size && buffer_ptr[pos] != '"') {
+			pos += buffer_ptr[pos] == '\\' ? 2 : 1;
+		}
+		if (pos >= buffer_size) {
+			return false;
+		}
+		pos++; // closing quote
+		return true;
+	};
+
+	if (pos >= buffer_size) {
+		return false;
+	}
+	if (buffer_ptr[pos] == '"') {
+		return skip_string();
+	}
+	if (buffer_ptr[pos] == '{' || buffer_ptr[pos] == '[') {
+		idx_t depth = 0;
+		while (pos < buffer_size) {
+			const auto c = buffer_ptr[pos];
+			if (c == '"') {
+				if (!skip_string()) {
+					return false;
+				}
+				continue;
+			}
+			if (c == '{' || c == '[') {
+				depth++;
+			} else if (c == '}' || c == ']') {
+				if (--depth == 0) {
+					pos++;
+					return true;
+				}
+			}
+			pos++;
+		}
+		return false;
+	}
+	// A number, or one of true/false/null
+	while (pos < buffer_size && buffer_ptr[pos] != ',' && buffer_ptr[pos] != '}' && buffer_ptr[pos] != ']' &&
+	       !StringUtil::CharacterIsSpace(buffer_ptr[pos])) {
+		pos++;
+	}
+	return true;
+}
+
 //! Shallow copy of a mutable value - the children of containers are copied by MutValMutCopy
 static yyjson_mut_val *MutValShallowCopy(yyjson_mut_doc *doc, yyjson_mut_val *val) {
 	auto result = unsafe_yyjson_mut_val(doc, 1);

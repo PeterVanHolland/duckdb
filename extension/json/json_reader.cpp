@@ -527,56 +527,6 @@ static inline const char *NextJSON(const char *ptr, const idx_t size) {
 	return ptr == end ? nullptr : ptr;
 }
 
-//! Skip over a single JSON value, leaving pos just after it
-static bool SkipJSONValue(const char *buffer_ptr, const idx_t buffer_size, idx_t &pos) {
-	const auto skip_string = [&]() {
-		pos++; // opening quote
-		while (pos < buffer_size && buffer_ptr[pos] != '"') {
-			pos += buffer_ptr[pos] == '\\' ? 2 : 1;
-		}
-		if (pos >= buffer_size) {
-			return false;
-		}
-		pos++; // closing quote
-		return true;
-	};
-
-	if (pos >= buffer_size) {
-		return false;
-	}
-	if (buffer_ptr[pos] == '"') {
-		return skip_string();
-	}
-	if (buffer_ptr[pos] == '{' || buffer_ptr[pos] == '[') {
-		idx_t depth = 0;
-		while (pos < buffer_size) {
-			const auto c = buffer_ptr[pos];
-			if (c == '"') {
-				if (!skip_string()) {
-					return false;
-				}
-				continue;
-			}
-			if (c == '{' || c == '[') {
-				depth++;
-			} else if (c == '}' || c == ']') {
-				if (--depth == 0) {
-					pos++;
-					return true;
-				}
-			}
-			pos++;
-		}
-		return false;
-	}
-	// A number, or one of true/false/null
-	while (pos < buffer_size && buffer_ptr[pos] != ',' && buffer_ptr[pos] != '}' &&
-	       !StringUtil::CharacterIsSpace(buffer_ptr[pos])) {
-		pos++;
-	}
-	return true;
-}
-
 //! Recognize a GeoJSON FeatureCollection and locate the '[' that opens its "features" array. This is a textual
 //! scan rather than a parse because the array is usually far bigger than the buffer we have here.
 static bool FindFeatureCollectionArray(const char *buffer_ptr, const idx_t buffer_size, idx_t &features_offset) {
@@ -635,7 +585,7 @@ static bool FindFeatureCollectionArray(const char *buffer_ptr, const idx_t buffe
 				return false; // Some other kind of object
 			}
 		}
-		if (!SkipJSONValue(buffer_ptr, buffer_size, pos)) {
+		if (!JSONCommon::SkipValue(buffer_ptr, buffer_size, pos)) {
 			return false;
 		}
 	}
