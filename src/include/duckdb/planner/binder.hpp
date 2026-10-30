@@ -251,6 +251,8 @@ public:
 public:
 	DUCKDB_API BoundStatement Bind(SQLStatement &statement);
 	DUCKDB_API BoundStatement Bind(QueryNode &node);
+	//! Binds a COPY TO whose query is already bound
+	DUCKDB_API BoundStatement Bind(CopyStatement &stmt, BoundStatement &bound_query);
 
 	unique_ptr<BoundCreateTableInfo> BindCreateTableInfo(unique_ptr<CreateInfo> info);
 	unique_ptr<BoundCreateTableInfo> BindCreateTableInfo(unique_ptr<CreateInfo> info, SchemaCatalogEntry &schema,
@@ -465,7 +467,8 @@ private:
 
 	BoundStatement Bind(SelectStatement &stmt);
 	BoundStatement Bind(InsertStatement &stmt);
-	BoundStatement Bind(CopyStatement &stmt, CopyToType copy_to_type);
+	BoundStatement Bind(CopyStatement &stmt, CopyToType copy_to_type,
+	                    optional_ptr<BoundStatement> bound_query = nullptr);
 	BoundStatement Bind(DeleteStatement &stmt);
 	BoundStatement Bind(UpdateStatement &stmt);
 	BoundStatement Bind(CreateStatement &stmt);
@@ -611,7 +614,8 @@ private:
 
 	unique_ptr<LogicalOperator> CreatePlan(BoundJoinRef &ref);
 
-	BoundStatement BindCopyTo(CopyStatement &stmt, const CopyFunction &function, CopyToType copy_to_type);
+	BoundStatement BindCopyTo(CopyStatement &stmt, const CopyFunction &function, CopyToType copy_to_type,
+	                          optional_ptr<BoundStatement> bound_query);
 	BoundStatement BindCopyFrom(CopyStatement &stmt, const CopyFunction &function);
 	void BindCopyFormat(CopyInfo &info);
 	void BindCopyOptions(CopyInfo &info, const CopyFunction &function);
