@@ -745,6 +745,8 @@ struct PartitionedCopyCollection {
 
 	PartitionedCopyCollectionSchema schema = PartitionedCopyCollectionSchema::WRITE_SCHEMA;
 	unique_ptr<ColumnDataCollection> collection;
+	//! Whether the rows are one sorted run of a hash group, which needs no further sort
+	bool single_sorted_run = false;
 };
 
 struct PartitionedCopyBatchAction {
@@ -1060,6 +1062,7 @@ struct DelayedPartitionState {
 		}
 		D_ASSERT(buffer.schema == data.schema);
 		buffer.collection->Combine(*data.collection);
+		buffer.single_sorted_run = false;
 	}
 
 	bool Ready(idx_t flush_threshold, bool force) const {
@@ -2158,7 +2161,8 @@ public:
 
 class SortStrategyInput : public PartitionedCopyInput {
 public:
-	SortStrategyInput(const PartitionedCopy &partitioned_copy, unique_ptr<const SortStrategy> strategy);
+	SortStrategyInput(const PartitionedCopy &partitioned_copy, unique_ptr<const SortStrategy> strategy,
+	                  unique_ptr<const SortStrategy> order_sort = nullptr);
 
 public:
 	unique_ptr<PartitionedCopyInputGlobalState> GetGlobalState(ClientContext &context) const override;
@@ -2181,6 +2185,8 @@ public:
 public:
 	const PartitionedCopy &partitioned_copy;
 	const unique_ptr<const SortStrategy> strategy;
+	//! Sorts a delayed partition by the order columns alone, without partitioning it again
+	const unique_ptr<const SortStrategy> order_sort;
 };
 
 //! A hash bin of a SortStrategyInput (or all bins of an overflow sort): sorted, materialized and masked for partition
@@ -2282,8 +2288,9 @@ private:
 };
 
 SortStrategyInput::SortStrategyInput(const PartitionedCopy &partitioned_copy_p,
-                                     unique_ptr<const SortStrategy> strategy_p)
-    : partitioned_copy(partitioned_copy_p), strategy(std::move(strategy_p)) {
+                                     unique_ptr<const SortStrategy> strategy_p,
+                                     unique_ptr<const SortStrategy> order_sort_p)
+    : partitioned_copy(partitioned_copy_p), strategy(std::move(strategy_p)), order_sort(std::move(order_sort_p)) {
 }
 
 unique_ptr<PartitionedCopyInputGlobalState> SortStrategyInput::GetGlobalState(ClientContext &context) const {
@@ -2340,10 +2347,13 @@ unique_ptr<ColumnDataCollection> SortStrategyInput::SortCollection(ExecutionCont
                                                                    unique_ptr<ColumnDataCollection> collection) const {
 	D_ASSERT(collection);
 	D_ASSERT(collection->Count() > 0);
+	if (!order_sort) {
+		throw InternalException("SortStrategyInput cannot sort a delayed partition without ORDER BY");
+	}
 	auto &context = execution_context.client;
 
-	auto global_sink_state = strategy->GetGlobalSinkState(context);
-	auto local_sink_state = strategy->GetLocalSinkState(execution_context);
+	auto global_sink_state = order_sort->GetGlobalSinkState(context);
+	auto local_sink_state = order_sort->GetLocalSinkState(execution_context);
 
 	ColumnDataScanState scan_state;
 	collection->InitializeScan(scan_state);
@@ -2352,31 +2362,31 @@ unique_ptr<ColumnDataCollection> SortStrategyInput::SortCollection(ExecutionCont
 
 	while (collection->Scan(scan_state, scan_chunk)) {
 		OperatorSinkInput sink_input {*global_sink_state, *local_sink_state, interrupt_state};
-		strategy->Sink(execution_context, scan_chunk, sink_input);
+		order_sort->Sink(execution_context, scan_chunk, sink_input);
 	}
 
 	OperatorSinkCombineInput combine_input {*global_sink_state, *local_sink_state, interrupt_state};
-	strategy->Combine(execution_context, combine_input);
+	order_sort->Combine(execution_context, combine_input);
 
 	OperatorSinkFinalizeInput finalize_input {*global_sink_state, interrupt_state};
-	strategy->Finalize(context, finalize_input);
+	order_sort->Finalize(context, finalize_input);
 
-	auto global_source_state = strategy->GetGlobalSourceState(context, *global_sink_state);
-	const auto &hash_groups = strategy->GetHashGroups(*global_source_state);
+	auto global_source_state = order_sort->GetGlobalSourceState(context, *global_sink_state);
+	const auto &hash_groups = order_sort->GetHashGroups(*global_source_state);
 
-	auto local_source_state = strategy->GetLocalSourceState(execution_context, *global_source_state);
+	auto local_source_state = order_sort->GetLocalSourceState(execution_context, *global_source_state);
 	OperatorSourceInput source_input {*global_source_state, *local_source_state, interrupt_state};
 	for (idx_t group_idx = 0; group_idx < hash_groups.size(); group_idx++) {
 		if (!hash_groups[group_idx].count) {
 			continue;
 		}
 
-		strategy->SortColumnData(execution_context, group_idx, finalize_input);
-		while (strategy->MaterializeColumnData(execution_context, group_idx, source_input) ==
+		order_sort->SortColumnData(execution_context, group_idx, finalize_input);
+		while (order_sort->MaterializeColumnData(execution_context, group_idx, source_input) ==
 		       SourceResultType::HAVE_MORE_OUTPUT) {
 		}
 
-		auto result = strategy->GetColumnData(group_idx, source_input);
+		auto result = order_sort->GetColumnData(group_idx, source_input);
 		if (!result || result->Count() != collection->Count()) {
 			throw InternalException("Failed to materialize delayed partition data");
 		}
@@ -3450,6 +3460,8 @@ void PartitionedCopyHashGroup::Flush(ExecutionContext &execution_context, Interr
 		}
 
 		auto data = PartitionedCopyCollection(collection_schema, std::move(collection));
+		// the batches are consecutive ranges of the sorted hash group
+		data.single_sorted_run = true;
 		auto ready_partition = partitioned_copy.BufferOrTakeReadyPartition(flush_action.values, std::move(data), false);
 		if (ready_partition) {
 			partitioned_copy.FlushPartitionCollection(execution_context, interrupt_state, std::move(*ready_partition));
@@ -3687,7 +3699,13 @@ unique_ptr<const PartitionedCopyInput> PartitionedCopy::ConstructInput() const {
 	auto strategy =
 	    SortStrategy::Factory(context, partition_bys, op.order_columns, op.expected_types, op.partition_stats,
 	                          op.children.empty() ? 0 : op.children[0].get().estimated_cardinality);
-	return make_uniq<SortStrategyInput>(*this, std::move(strategy));
+	unique_ptr<const SortStrategy> order_sort;
+	if (!op.order_columns.empty()) {
+		vector<unique_ptr<Expression>> no_partition_bys;
+		vector<unique_ptr<BaseStatistics>> no_stats;
+		order_sort = SortStrategy::Factory(context, no_partition_bys, op.order_columns, op.expected_types, no_stats, 0);
+	}
+	return make_uniq<SortStrategyInput>(*this, std::move(strategy), std::move(order_sort));
 }
 
 bool PartitionedCopy::RequiresSerializedPartitionWrites() const {
@@ -4290,8 +4308,10 @@ void PartitionedCopy::FlushPartitionCollection(ExecutionContext &execution_conte
 		DelayedPartitionFlushGuard delayed_guard(*this, flush.values);
 		if (flush.data.collection && flush.data.collection->Count() > 0) {
 			if (flush.data.schema == PartitionedCopyCollectionSchema::RAW_SCHEMA) {
-				flush.data.collection =
-				    SortPartitionCollection(execution_context, interrupt_state, std::move(flush.data.collection));
+				if (!flush.data.single_sorted_run) {
+					flush.data.collection =
+					    SortPartitionCollection(execution_context, interrupt_state, std::move(flush.data.collection));
+				}
 				flush.data.collection = ProjectToWriteColumns(std::move(flush.data.collection));
 				flush.data.schema = PartitionedCopyCollectionSchema::WRITE_SCHEMA;
 			}
