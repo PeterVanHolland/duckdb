@@ -11,6 +11,7 @@
 #include "duckdb/common/operator/cast_operators.hpp"
 #include "duckdb/common/types/decimal.hpp"
 #include "duckdb/common/operator/integer_cast_operator.hpp"
+#include "duckdb/common/operator/multiply.hpp"
 
 namespace duckdb {
 
@@ -491,6 +492,10 @@ struct DecimalCastData {
 	bool round_set;
 	//! If the result should be rounded
 	bool should_round;
+	//! Whether a decimal was dropped because the result is full
+	bool decimal_dropped;
+	//! If the first dropped decimal rounds the result up
+	bool round_dropped;
 	//! Only set when ALLOW_EXPONENT is enabled
 	uint8_t excessive_decimals;
 	ExponentType exponent_type;
@@ -566,6 +571,10 @@ struct DecimalCastOperation {
 				exponent = 0;
 			} else {
 				exponent -= decimal_excess;
+				if (exponent == 0 && state.round_dropped) {
+					// the first dropped decimal is the first one past the scale
+					RoundUpResult<T, NEGATIVE>(state);
+				}
 			}
 			D_ASSERT(exponent >= 0);
 		} else if (exponent < 0) {
@@ -590,12 +599,17 @@ struct DecimalCastOperation {
 			return true;
 		} else {
 			// positive exponent: append 0's
-			for (idx_t i = 0; i < idx_t(exponent); i++) {
-				if (!HandleDigit<T, NEGATIVE>(state, 0)) {
+			if (state.result != 0) {
+				using store_t = typename T::StoreType;
+				if (exponent > state.width) {
+					return false;
+				}
+				auto power = UnsafeNumericCast<store_t>(
+				    DecimalCastTraits<store_t>::POWERS_OF_TEN_CLASS::POWERS_OF_TEN[exponent]);
+				if (!TryMultiplyOperator::Operation(state.result, power, state.result)) {
 					return false;
 				}
 			}
-			// decimals moved before the decimal point by the exponent do not count towards the digit count
 			return WithinLimit<T, NEGATIVE>(state);
 		}
 	}
@@ -615,8 +629,20 @@ struct DecimalCastOperation {
 		}
 		//! If we expect an exponent, we need to preserve the decimals
 		//! But we don't want to overflow, so we prevent overflowing the result with this check
-		if (state.digit_count + state.decimal_count >= DecimalWidth<decltype(state.result)>::max) {
-			return true;
+		using store_t = typename T::StoreType;
+		constexpr auto max_digits = DecimalWidth<store_t>::max;
+		if (state.digit_count + state.decimal_count >= max_digits) {
+			// leading zeros of the decimals are not digits of the result
+			auto full = UnsafeNumericCast<store_t>(
+			    DecimalCastTraits<store_t>::POWERS_OF_TEN_CLASS::POWERS_OF_TEN[max_digits - 1]);
+			bool result_is_full = NEGATIVE ? state.result <= -full : state.result >= full;
+			if (result_is_full || state.decimal_count == NumericLimits<uint8_t>::Maximum()) {
+				if (!state.decimal_dropped) {
+					state.decimal_dropped = true;
+					state.round_dropped = digit >= 5;
+				}
+				return true;
+			}
 		}
 		state.decimal_count++;
 		if (NEGATIVE) {
@@ -695,6 +721,8 @@ bool TryDecimalStringCast(const char *string_ptr, idx_t string_size, T &result, 
 	state.exponent_type = ExponentType::NONE;
 	state.round_set = false;
 	state.should_round = false;
+	state.decimal_dropped = false;
+	state.round_dropped = false;
 	state.limit = UnsafeNumericCast<T>(DecimalCastTraits<T>::POWERS_OF_TEN_CLASS::POWERS_OF_TEN[width]);
 	if (!TryIntegerCast<DecimalCastData<T>, true, true, DecimalCastOperation, false, decimal_separator>(
 	        string_ptr, string_size, state, false)) {
@@ -720,6 +748,8 @@ bool TryDecimalStringCast(const char *string_ptr, idx_t string_size, T &result, 
 	state.exponent_type = ExponentType::NONE;
 	state.round_set = false;
 	state.should_round = false;
+	state.decimal_dropped = false;
+	state.round_dropped = false;
 	state.limit = UnsafeNumericCast<T>(DecimalCastTraits<T>::POWERS_OF_TEN_CLASS::POWERS_OF_TEN[width]);
 	if (!TryIntegerCast<DecimalCastData<T>, true, true, DecimalCastOperation, false, decimal_separator>(
 	        string_ptr, string_size, state, false)) {
