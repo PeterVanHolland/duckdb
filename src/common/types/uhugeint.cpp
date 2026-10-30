@@ -2,6 +2,7 @@
 #include "duckdb/common/types/hugeint.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/algorithm.hpp"
+#include "duckdb/common/bit_utils.hpp"
 #include "duckdb/common/limits.hpp"
 #include "duckdb/common/numeric_utils.hpp"
 #include "duckdb/common/windows_undefs.hpp"
@@ -403,23 +404,35 @@ bool Uhugeint::TryCast(uhugeint_t input, hugeint_t &result) {
 	return true;
 }
 
-template <>
-bool Uhugeint::TryCast(uhugeint_t input, float &result) {
-	double dbl_result;
-	Uhugeint::TryCast(input, dbl_result);
-	result = (float)dbl_result;
-	return true;
+//! Rounds once, as the 64 most significant bits are converted with their lowest bit set if any bit below them is
+template <class REAL_T>
+static REAL_T UhugeintToFloating(uhugeint_t input) {
+	static_assert(std::numeric_limits<REAL_T>::digits < 64, "the lowest of the 64 bits must be below the precision");
+	if (input.upper == 0) {
+		return REAL_T(input.lower);
+	}
+	auto shift = 64 - CountZeros<uint64_t>::Leading(input.upper);
+	uint64_t top = input.upper;
+	bool below = input.lower != 0;
+	if (shift < 64) {
+		top = (input.upper << (64 - shift)) | (input.lower >> shift);
+		below = (input.lower << (64 - shift)) != 0;
+	}
+	// scaling by a power of two is exact
+	auto scale = REAL_T(uint64_t(1) << (shift - 1)) * REAL_T(2);
+	return REAL_T(top | static_cast<uint64_t>(below)) * scale;
 }
 
-template <class REAL_T>
-bool CastUhugeintToFloating(uhugeint_t input, REAL_T &result) {
-	result = REAL_T(input.lower) + REAL_T(input.upper) * REAL_T(NumericLimits<uint64_t>::Maximum());
+template <>
+bool Uhugeint::TryCast(uhugeint_t input, float &result) {
+	result = UhugeintToFloating<float>(input);
 	return true;
 }
 
 template <>
 bool Uhugeint::TryCast(uhugeint_t input, double &result) {
-	return CastUhugeintToFloating<double>(input, result);
+	result = UhugeintToFloating<double>(input);
+	return true;
 }
 
 template <class DST>
