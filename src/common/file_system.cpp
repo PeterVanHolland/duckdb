@@ -3,6 +3,7 @@
 #include "duckdb/common/checksum.hpp"
 #include "duckdb/common/time_point.hpp"
 #include "duckdb/common/compressed_file_system.hpp"
+#include "duckdb/common/error_data.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/file_opener.hpp"
 #include "duckdb/common/helper.hpp"
@@ -510,6 +511,18 @@ timestamp_t FileSystem::GetLastModifiedTime(FileHandle &handle) {
 	throw NotImplementedException("%s: GetLastModifiedTime is not implemented!", GetName());
 }
 
+optional<timestamp_t> FileSystem::TryGetLastModifiedTime(FileHandle &handle) {
+	try {
+		return GetLastModifiedTime(handle);
+	} catch (std::exception &ex) {
+		ErrorData error(ex);
+		if (error.Type() != ExceptionType::NOT_IMPLEMENTED) {
+			throw;
+		}
+		return nullopt;
+	}
+}
+
 string FileSystem::GetVersionTag(FileHandle &handle) {
 	// Used to check cache invalidation for httpfs files with an ETag in CachingFileSystem
 	return "";
@@ -526,7 +539,10 @@ FileType FileSystem::GetFileType(FileHandle &handle) {
 FileMetadata FileSystem::Stats(FileHandle &handle) {
 	FileMetadata metadata;
 	metadata.file_size = GetFileSize(handle);
-	metadata.last_modification_time = GetLastModifiedTime(handle);
+	auto last_modification_time = TryGetLastModifiedTime(handle);
+	if (last_modification_time) {
+		metadata.last_modification_time = *last_modification_time;
+	}
 	metadata.file_type = GetFileType(handle);
 	metadata.version_tag = GetVersionTag(handle);
 	metadata.cache_valid_until = GetCacheValidUntil(handle);
