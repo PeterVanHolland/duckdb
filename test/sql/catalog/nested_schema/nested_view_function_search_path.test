@@ -1,0 +1,85 @@
+# name: test/sql/catalog/nested_schema/nested_view_function_search_path.test
+# description: Functions of a nested schema in a view resolve with the search path of the view
+# group: [nested_schema]
+
+statement ok
+ATTACH ':memory:' AS lake;
+
+statement ok
+USE lake;
+
+statement ok
+CREATE SCHEMA s;
+
+statement ok
+CREATE SCHEMA s.n;
+
+statement ok
+CREATE MACRO s.n.m() AS 1;
+
+statement ok
+CREATE MACRO s.n.tm() AS TABLE SELECT 1 AS id;
+
+statement ok
+CREATE TABLE s.n.t AS SELECT 1 AS id;
+
+statement ok
+CREATE VIEW v AS SELECT s.n.m() AS fn, (SELECT id FROM s.n.tm()) AS tfn;
+
+statement ok
+CREATE VIEW kv AS WITH RECURSIVE r(k, v) USING KEY (k, max((SELECT id FROM s.n.t)) AS v) AS (SELECT 1, 0 UNION SELECT 1, 0) SELECT v FROM r;
+
+statement ok
+USE memory;
+
+query III
+SELECT fn, tfn, (SELECT v FROM lake.kv) FROM lake.v;
+----
+1	1	1
+
+# the default database of the session holds the same names
+statement ok
+CREATE SCHEMA s;
+
+statement ok
+CREATE SCHEMA s.n;
+
+statement ok
+CREATE MACRO s.n.m() AS 999;
+
+statement ok
+CREATE MACRO s.n.tm() AS TABLE SELECT 999 AS id;
+
+statement ok
+CREATE TABLE s.n.t AS SELECT 999 AS id;
+
+query III
+SELECT fn, tfn, (SELECT v FROM lake.kv) FROM lake.v;
+----
+1	1	1
+
+query II
+SELECT s.n.m(), (SELECT id FROM s.n.tm());
+----
+999	999
+
+# a lone qualifier of a function in a view is checked against the view's catalog
+statement ok
+CREATE SCHEMA lake.q;
+
+statement ok
+CREATE MACRO lake.q.m() AS 1;
+
+statement ok
+CREATE VIEW lake.qv AS SELECT q.m() AS id;
+
+statement ok
+ATTACH ':memory:' AS q;
+
+statement ok
+CREATE MACRO q.main.m() AS 999;
+
+statement error
+SELECT id FROM lake.qv;
+----
+Ambiguous reference to catalog or schema "q"
