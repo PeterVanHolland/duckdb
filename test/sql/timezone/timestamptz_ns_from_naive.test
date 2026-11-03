@@ -1,5 +1,5 @@
 # name: test/sql/timezone/timestamptz_ns_from_naive.test
-# description: Casts of DATE and the microsecond, millisecond and second timestamps to TIMESTAMPTZ_NS use the session time zone like the casts to TIMESTAMPTZ
+# description: DATE and coarser timestamp casts to TIMESTAMPTZ_NS use the session time zone like those to TIMESTAMPTZ
 # group: [timezone]
 
 require icu
@@ -10,23 +10,39 @@ statement ok
 SET TimeZone='America/Los_Angeles'
 
 query TTTT
-SELECT CAST(DATE '2021-01-01' AS TIMESTAMPTZ_NS), CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ_NS),
-    CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ_NS), CAST(TIMESTAMP_S '2021-01-01 12:00:00' AS TIMESTAMPTZ_NS)
+SELECT CAST(DATE '2021-01-01' AS TIMESTAMPTZ_NS),
+    CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ_NS),
+    CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ_NS),
+    CAST(TIMESTAMP_S '2021-01-01 12:00:00' AS TIMESTAMPTZ_NS)
 ----
 2021-01-01 00:00:00-08	2021-01-01 12:00:00.123456-08	2021-01-01 12:00:00.123-08	2021-01-01 12:00:00-08
 
 query TTTT
 SELECT CAST(DATE '2021-01-01' AS TIMESTAMPTZ_NS) = CAST(DATE '2021-01-01' AS TIMESTAMPTZ),
-    CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ_NS) = CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ),
-    CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ_NS) = CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ),
+    CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ_NS)
+        = CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ),
+    CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ_NS)
+        = CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ),
     CAST(TIMESTAMP_S '2021-01-01 12:00:00' AS TIMESTAMPTZ_NS) = CAST(TIMESTAMP_S '2021-01-01 12:00:00' AS TIMESTAMPTZ)
 ----
 true	true	true	true
 
-query TTT
-SELECT CAST('infinity'::DATE AS TIMESTAMPTZ_NS), CAST('-infinity'::TIMESTAMP AS TIMESTAMPTZ_NS), CAST(NULL::DATE AS TIMESTAMPTZ_NS)
+query TTTT
+SELECT CAST('infinity'::DATE AS TIMESTAMPTZ_NS), CAST('-infinity'::TIMESTAMP AS TIMESTAMPTZ_NS),
+    CAST('infinity'::TIMESTAMP_MS AS TIMESTAMPTZ_NS), CAST(NULL::TIMESTAMP_S AS TIMESTAMPTZ_NS)
 ----
-infinity	-infinity	NULL
+infinity	-infinity	infinity	NULL
+
+# values beyond the nanosecond range fail like the casts without a time zone
+query TT
+SELECT TRY_CAST(TIMESTAMP_MS '2300-01-01' AS TIMESTAMPTZ_NS), TRY_CAST(DATE '2300-01-01' AS TIMESTAMPTZ_NS)
+----
+NULL	NULL
+
+statement error
+SELECT CAST(TIMESTAMP_S '2300-01-01' AS TIMESTAMPTZ_NS)
+----
+Could not convert Timestamp to higher precision
 
 # the relaxed pushdown of a DATE filter casts the date with the session time zone, so a file holding the last
 # nanosecond of the local day is kept

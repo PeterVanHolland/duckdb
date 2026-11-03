@@ -217,7 +217,7 @@ struct ICUFromNaiveTimestamp : public ICUDateFunc {
 			using NAIVE = timestamp_base_t<DST::PRECISION, false>;
 			NAIVE naive;
 			if (!TryCast::Operation(input, naive)) {
-				HandleCastError::AssignError(CastExceptionText<SRC, NAIVE>(input), parameters);
+				HandleCastError::AssignError("Could not convert Timestamp to higher precision.", parameters);
 				all_converted = false;
 				return nullopt;
 			}
