@@ -796,8 +796,12 @@ static bool IsLessThan(ExpressionType type) {
 
 //! Returns the relaxation margin in native units of the source type for a temporal cast.
 //! Returns -1 if the cast pair is not supported for relaxed pushdown.
-//! Margins: 2h for DST ambiguity (TIMESTAMP<->TIMESTAMPTZ), 24h for time-of-day loss, 1s for rounding loss.
-//! The local day of a time zone column lasts up to 25h when the clocks go back, so its DATE margin gets the 2h too.
+//! Margins: 24h for time-of-day loss, 1s for rounding loss, plus 2h for a cast between a time zone type and a naive
+//! type, where a daylight saving change repeats an hour or stretches the day to 25h.
+static bool IsTimeZoneType(LogicalTypeId type) {
+	return type == LogicalTypeId::TIMESTAMP_TZ || type == LogicalTypeId::TIMESTAMP_TZ_NS;
+}
+
 static int64_t GetTemporalCastMargin(LogicalTypeId source, LogicalTypeId target) {
 	if (source == target) {
 		switch (source) {
@@ -814,38 +818,40 @@ static int64_t GetTemporalCastMargin(LogicalTypeId source, LogicalTypeId target)
 			return -1;
 		}
 	}
+	const int64_t zone_hours = IsTimeZoneType(source) != IsTimeZoneType(target) ? 2 : 0;
 	switch (source) {
 	case LogicalTypeId::TIMESTAMP:
-	case LogicalTypeId::TIMESTAMP_TZ:
+	case LogicalTypeId::TIMESTAMP_TZ: {
 		// native unit: microseconds
+		const int64_t zone_margin = zone_hours * Interval::MICROS_PER_HOUR;
 		switch (target) {
 		case LogicalTypeId::TIMESTAMP:
 		case LogicalTypeId::TIMESTAMP_TZ:
-			return 2LL * Interval::MICROS_PER_HOUR;
+			return zone_margin;
 		case LogicalTypeId::DATE:
-			return Interval::MICROS_PER_DAY +
-			       (source == LogicalTypeId::TIMESTAMP_TZ ? 2LL * Interval::MICROS_PER_HOUR : 0);
+			return Interval::MICROS_PER_DAY + zone_margin;
 		case LogicalTypeId::TIMESTAMP_MS:
 		case LogicalTypeId::TIMESTAMP_SEC:
-			return Interval::MICROS_PER_SEC;
+			return Interval::MICROS_PER_SEC + zone_margin;
 		default:
 			return -1;
 		}
+	}
 	case LogicalTypeId::TIMESTAMP_NS:
-	case LogicalTypeId::TIMESTAMP_TZ_NS:
+	case LogicalTypeId::TIMESTAMP_TZ_NS: {
 		// native unit: nanoseconds
+		const int64_t zone_margin = zone_hours * Interval::NANOS_PER_HOUR;
 		switch (target) {
 		case LogicalTypeId::TIMESTAMP:
 		case LogicalTypeId::TIMESTAMP_MS:
 		case LogicalTypeId::TIMESTAMP_SEC:
-			return Interval::MICROS_PER_SEC * 1000LL;
+			return Interval::NANOS_PER_SEC + zone_margin;
 		case LogicalTypeId::DATE:
-			return (Interval::MICROS_PER_DAY +
-			        (source == LogicalTypeId::TIMESTAMP_TZ_NS ? 2LL * Interval::MICROS_PER_HOUR : 0)) *
-			       1000LL;
+			return Interval::NANOS_PER_DAY + zone_margin;
 		default:
 			return -1;
 		}
+	}
 	case LogicalTypeId::TIMESTAMP_MS:
 		// native unit: milliseconds
 		switch (target) {
