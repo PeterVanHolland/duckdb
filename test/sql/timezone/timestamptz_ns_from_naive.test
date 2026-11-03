@@ -1,0 +1,66 @@
+# name: test/sql/timezone/timestamptz_ns_from_naive.test
+# description: Casts of DATE and the microsecond, millisecond and second timestamps to TIMESTAMPTZ_NS use the session time zone like the casts to TIMESTAMPTZ
+# group: [timezone]
+
+require icu
+
+require parquet
+
+statement ok
+SET TimeZone='America/Los_Angeles'
+
+query TTTT
+SELECT CAST(DATE '2021-01-01' AS TIMESTAMPTZ_NS), CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ_NS),
+    CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ_NS), CAST(TIMESTAMP_S '2021-01-01 12:00:00' AS TIMESTAMPTZ_NS)
+----
+2021-01-01 00:00:00-08	2021-01-01 12:00:00.123456-08	2021-01-01 12:00:00.123-08	2021-01-01 12:00:00-08
+
+query TTTT
+SELECT CAST(DATE '2021-01-01' AS TIMESTAMPTZ_NS) = CAST(DATE '2021-01-01' AS TIMESTAMPTZ),
+    CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ_NS) = CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ),
+    CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ_NS) = CAST(TIMESTAMP_MS '2021-01-01 12:00:00.123' AS TIMESTAMPTZ),
+    CAST(TIMESTAMP_S '2021-01-01 12:00:00' AS TIMESTAMPTZ_NS) = CAST(TIMESTAMP_S '2021-01-01 12:00:00' AS TIMESTAMPTZ)
+----
+true	true	true	true
+
+query TTT
+SELECT CAST('infinity'::DATE AS TIMESTAMPTZ_NS), CAST('-infinity'::TIMESTAMP AS TIMESTAMPTZ_NS), CAST(NULL::DATE AS TIMESTAMPTZ_NS)
+----
+infinity	-infinity	NULL
+
+# the relaxed pushdown of a DATE filter casts the date with the session time zone, so a file holding the last
+# nanosecond of the local day is kept
+statement ok
+COPY (SELECT 1 AS id, TIMESTAMPTZ_NS '2021-01-01 12:00:00+00' AS ts) TO '__TEST_DIR__/tzns_day_1.parquet'
+
+statement ok
+COPY (SELECT 2 AS id, TIMESTAMPTZ_NS '2021-01-02 07:59:59.999999999+00' AS ts) TO '__TEST_DIR__/tzns_day_2.parquet'
+
+statement ok
+COPY (SELECT 3 AS id, TIMESTAMPTZ_NS '2021-01-02 08:00:00+00' AS ts) TO '__TEST_DIR__/tzns_day_3.parquet'
+
+query I
+SELECT list(id ORDER BY id) FROM read_parquet('__TEST_DIR__/tzns_day_*.parquet') WHERE ts::DATE = DATE '2021-01-01'
+----
+[1, 2]
+
+query I
+SELECT list(id ORDER BY id) FROM read_parquet('__TEST_DIR__/tzns_day_*.parquet') WHERE ts::DATE >= DATE '2021-01-02'
+----
+[3]
+
+statement ok
+SET TimeZone='UTC'
+
+query TT
+SELECT CAST(DATE '2021-01-01' AS TIMESTAMPTZ_NS), CAST(TIMESTAMP '2021-01-01 12:00:00.123456' AS TIMESTAMPTZ_NS)
+----
+2021-01-01 00:00:00+00	2021-01-01 12:00:00.123456+00
+
+statement ok
+SET disable_timestamptz_casts=true
+
+statement error
+SELECT CAST(DATE '2021-01-01' AS TIMESTAMPTZ_NS)
+----
+<REGEX>:Binder Error.*AT TIME ZONE.*
