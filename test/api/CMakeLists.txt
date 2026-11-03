@@ -27,6 +27,7 @@ set(TEST_API_OBJECTS
     test_os_util.cpp
     test_connection_secrets.cpp
     test_copy_output_lifecycle.cpp
+    test_read_blob_without_modification_time.cpp
     test_custom_allocator.cpp
     test_extension_install_in_progress.cpp
     test_extension_repositories.cpp
