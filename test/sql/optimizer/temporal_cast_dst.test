@@ -58,3 +58,40 @@ SELECT (SELECT count(*) FROM ts_dst_table WHERE CAST(col AS TIMESTAMPTZ) > '2026
      + (SELECT count(*) FROM ts_dst_table WHERE CAST(col AS TIMESTAMPTZ) <= '2026-10-25 02:30:00+01'::TIMESTAMPTZ);
 ----
 300
+
+# ---------------------------------------------------------------------------
+# TIMESTAMPTZ -> DATE on the 25 hour day of the autumn switch
+# The rows lie in the last hour of the local day, after local midnight plus 24 hours.
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE long_day AS
+    SELECT '2026-10-25 22:00:30+00'::TIMESTAMPTZ + (i * INTERVAL '1 minute') AS col
+    FROM range(60) t(i);
+
+query I
+SELECT count(*) FROM long_day WHERE CAST(col AS DATE) = DATE '2026-10-25';
+----
+60
+
+query I
+SELECT count(*) FROM long_day WHERE CAST(col AS DATE) <= DATE '2026-10-25';
+----
+60
+
+query I
+SELECT count(*) FROM long_day WHERE CAST(col AS DATE) >= DATE '2026-10-26';
+----
+0
+
+statement ok
+CREATE TABLE long_day_ns AS SELECT col::TIMESTAMPTZ_NS AS col FROM long_day;
+
+query I
+SELECT count(*) FROM long_day_ns WHERE CAST(col AS DATE) = DATE '2026-10-25';
+----
+60
+
+query I
+SELECT count(*) FROM long_day_ns WHERE CAST(col AS DATE) <= DATE '2026-10-25';
+----
+60
