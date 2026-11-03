@@ -116,9 +116,19 @@ SELECT count(*) FROM long_day_ns WHERE CAST(col AS DATE) >= DATE '2026-10-25';
 ----
 60
 
+query I
+SELECT count(*) FROM long_day WHERE CAST(col AS DATE) < DATE '2026-10-26';
+----
+60
+
+query I
+SELECT count(*) FROM long_day_ns WHERE CAST(col AS DATE) > DATE '2026-10-24';
+----
+60
+
 # ---------------------------------------------------------------------------
 # TIMESTAMPTZ_NS -> TIMESTAMP and TIMESTAMPTZ -> TIMESTAMP_MS around the autumn switch
-# 02:30 happens twice, the single row tables hold one instant each, and the relaxed filter must keep both
+# 02:30 happens twice, each single row table holds one of the instants, and the relaxed filter must keep both
 # ---------------------------------------------------------------------------
 statement ok
 CREATE TABLE first_ns AS SELECT '2026-10-25 00:30:00+00'::TIMESTAMPTZ_NS AS col;
@@ -153,5 +163,17 @@ SELECT (SELECT count(*) FROM first_us WHERE CAST(col AS TIMESTAMP_MS) > TIMESTAM
 query II
 SELECT (SELECT count(*) FROM first_us WHERE CAST(col AS TIMESTAMP_MS) < TIMESTAMP_MS '2026-10-25 02:45:00'),
     (SELECT count(*) FROM second_us WHERE CAST(col AS TIMESTAMP_MS) < TIMESTAMP_MS '2026-10-25 02:45:00');
+----
+1	1
+
+query II
+SELECT (SELECT count(*) FROM first_ns WHERE CAST(col AS TIMESTAMP_MS) > TIMESTAMP_MS '2026-10-25 02:15:00'),
+    (SELECT count(*) FROM second_ns WHERE CAST(col AS TIMESTAMP_MS) < TIMESTAMP_MS '2026-10-25 02:45:00');
+----
+1	1
+
+query II
+SELECT (SELECT count(*) FROM first_us WHERE CAST(col AS TIMESTAMP_S) > TIMESTAMP_S '2026-10-25 02:15:00'),
+    (SELECT count(*) FROM second_us WHERE CAST(col AS TIMESTAMP_S) < TIMESTAMP_S '2026-10-25 02:45:00');
 ----
 1	1

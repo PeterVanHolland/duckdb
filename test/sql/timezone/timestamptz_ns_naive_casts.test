@@ -110,6 +110,12 @@ WHERE ts::TIMESTAMP > TIMESTAMP '2021-01-01 12:00:00'
 
 query I
 SELECT list(id ORDER BY id) FROM read_parquet('__TEST_DIR__/tzns_day_*.parquet')
+WHERE ts::TIMESTAMP < TIMESTAMP '2021-01-01 05:00:00'
+----
+[1]
+
+query I
+SELECT list(id ORDER BY id) FROM read_parquet('__TEST_DIR__/tzns_day_*.parquet')
 WHERE ts::TIMESTAMP_MS = TIMESTAMP_MS '2021-01-01 04:00:00'
 ----
 [1]

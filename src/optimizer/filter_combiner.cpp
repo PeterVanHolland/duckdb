@@ -794,14 +794,14 @@ static bool IsLessThan(ExpressionType type) {
 	return type == ExpressionType::COMPARE_LESSTHAN || type == ExpressionType::COMPARE_LESSTHANOREQUALTO;
 }
 
-//! Returns the relaxation margin in native units of the source type for a temporal cast.
-//! Returns -1 if the cast pair is not supported for relaxed pushdown.
-//! Margins: 24h for time-of-day loss, 1s for rounding loss, plus 2h for a cast between a time zone type and a naive
-//! type, where a daylight saving change repeats an hour or stretches the day to 25h.
 static bool IsTimeZoneType(LogicalTypeId type) {
 	return type == LogicalTypeId::TIMESTAMP_TZ || type == LogicalTypeId::TIMESTAMP_TZ_NS;
 }
 
+//! Returns the relaxation margin in native units of the source type for a temporal cast.
+//! Returns -1 if the cast pair is not supported for relaxed pushdown.
+//! Margins: 24h for time-of-day loss, 1s for rounding loss, plus 2h for a cast between a time zone type and a naive
+//! type, where a daylight saving change repeats an hour or stretches the day to 25h.
 static int64_t GetTemporalCastMargin(LogicalTypeId source, LogicalTypeId target) {
 	if (source == target) {
 		switch (source) {
