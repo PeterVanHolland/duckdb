@@ -42,6 +42,10 @@ unique_ptr<ColumnSegment> ColumnSegment::CreatePersistentSegment(DatabaseInstanc
 
 	auto &type = statistics.GetType();
 	auto function = config.GetCompressionFunction(compression_type, type.InternalType());
+	if (block_id == INVALID_BLOCK && !function.get().supports_null_block) {
+		throw DataCorruptionException("Persistent %s segment is missing its data block",
+		                              CompressionTypeToString(compression_type));
+	}
 	if (block_id != INVALID_BLOCK) {
 		block = block_manager.RegisterBlock(block_id);
 	}
@@ -283,6 +287,12 @@ void ColumnSegment::MarkAsPersistent(shared_ptr<BlockHandle> block_p, uint32_t o
 	D_ASSERT(segment_type == ColumnSegmentType::TRANSIENT);
 	block_id = block_p->BlockId();
 	SetBlock(std::move(block_p), offset_p);
+}
+
+void ColumnSegment::UsePackedCopy(shared_ptr<BlockHandle> block_p, uint32_t offset_p) {
+	D_ASSERT(segment_type == ColumnSegmentType::TRANSIENT);
+	offset = offset_p;
+	block = std::move(block_p);
 }
 
 void ColumnSegment::SetBlock(shared_ptr<BlockHandle> block_p, uint32_t offset_p) {
