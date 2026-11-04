@@ -107,9 +107,9 @@ BoundStatement Binder::BindNode(RecursiveCTENode &statement) {
 			QueryErrorContext error_context(expr->GetQueryLocation());
 
 			auto function_name = func_expr.GetQualifiedName();
-			BindSchemaOrCatalog(entry_retriever, function_name);
-			EntryLookupInfo function_lookup(CatalogType::AGGREGATE_FUNCTION_ENTRY,
-			                                BindTableName(entry_retriever, function_name), error_context);
+			BindSchemaOrCatalog(function_name);
+			EntryLookupInfo function_lookup(CatalogType::AGGREGATE_FUNCTION_ENTRY, BindTableName(function_name),
+			                                error_context);
 			auto entry = GetCatalogEntry(function_lookup, OnEntryNotFound::RETURN_NULL);
 
 			if (!entry || entry->type != CatalogType::AGGREGATE_FUNCTION_ENTRY) {
