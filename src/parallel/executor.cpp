@@ -26,6 +26,10 @@
 #include <algorithm>
 #include <chrono>
 
+#ifdef __EMSCRIPTEN_PTHREADS__
+#include <emscripten/threading.h>
+#endif
+
 namespace duckdb {
 
 Executor::Executor(ClientContext &context) : context(context), executor_tasks(0), blocked_thread_time(0) {
@@ -452,6 +456,10 @@ QueryResultState Executor::ExecuteTask() {
 			TaskScheduler::GetScheduler(context).GetTaskFromProducer(*producer, task);
 		}
 		if (!task && !HasError()) {
+#ifdef __EMSCRIPTEN_PTHREADS__
+			// A positive sleep services the dlopen queue while another worker owns the task.
+			emscripten_thread_sleep(1);
+#endif
 			return IdleState();
 		}
 		if (task) {
@@ -584,6 +592,29 @@ vector<LogicalType> Executor::GetTypes() {
 void Executor::PushError(ErrorData exception) {
 	// push the exception onto the stack
 	error_manager.PushError(std::move(exception));
+	InterruptPipelines();
+}
+
+void Executor::PushTaskError(const std::exception &ex) {
+	error_manager.PushTaskError([&]() { return ErrorData(ex); });
+	TryInterruptPipelines();
+}
+
+void Executor::PushTaskError(const char *message) {
+	error_manager.PushTaskError([&]() { return ErrorData(message); });
+	TryInterruptPipelines();
+}
+
+void Executor::TryInterruptPipelines() {
+	try {
+		InterruptPipelines();
+	} catch (...) { // NOLINT
+		// rescheduling blocked tasks can fail when memory runs out, and the error is recorded, so the main thread
+		// sees it and cancels the remaining tasks
+	}
+}
+
+void Executor::InterruptPipelines() {
 	// interrupt execution of any other pipelines that belong to this executor
 	context.interrupt_state = ClientInterruptState::INTERRUPTED;
 	for (auto &pipeline : pipelines) {
