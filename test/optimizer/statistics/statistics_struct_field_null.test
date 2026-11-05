@@ -58,6 +58,6 @@ PRAGMA explain_output = OPTIMIZED_ONLY;
 
 # a filter on the column itself is still replaced with a NULL check
 query II
-EXPLAIN SELECT id FROM strings WHERE y IN ('a', 'b');
+EXPLAIN SELECT id FROM strings WHERE contains(y, 'a');
 ----
 logical_opt	<REGEX>:.*y IS NOT NULL.*
