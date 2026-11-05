@@ -330,10 +330,11 @@ protected:
 	}
 
 	//! Consumes the delimiter at `at` and those of the unprojected columns that follow in the block, `run` at most,
-	//! with one bookkeeping call. Returns the first byte after the last one
+	//! with one bookkeeping call, `last` is the first byte after the previous structural byte. Returns the first byte
+	//! after the last consumed delimiter
 	template <class T>
-	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, uint64_t &candidates,
-	                        const idx_t pos, const idx_t limit) {
+	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t last,
+	                        uint64_t &candidates, const idx_t pos, const idx_t limit) {
 		idx_t last_delimiter = at;
 		CSVState before_last = before;
 		idx_t consumed = 1;
@@ -356,6 +357,8 @@ protected:
 			last_delimiter = next;
 			consumed++;
 		}
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[1] == CSVState::DELIMITER);
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[0] == before_last);
 		states.states[0] = before_last;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = last_delimiter;
@@ -486,10 +489,7 @@ protected:
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 					const idx_t run = T::SkippableRun(result, at);
 					if (run > 0) {
-						const idx_t run_end = BlockDelimiterRun(result, at, before, run, candidates, pos, limit);
-						D_ASSERT(ReplayStates(last, run_end).states[1] == CSVState::DELIMITER);
-						D_ASSERT(ReplayStates(last, run_end).states[0] == states.states[0]);
-						last = run_end;
+						last = BlockDelimiterRun(result, at, before, run, last, candidates, pos, limit);
 					} else {
 						BlockDelimiter(result, at, before, value_ascii);
 						last = at + 1;

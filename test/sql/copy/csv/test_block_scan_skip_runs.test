@@ -8,8 +8,11 @@ require notwindows
 # block_scan_runs.csv holds, per row, a tab, a quoted value with the delimiter, a quote in an unquoted value, a space
 # before a quote, empty values, too few and too many columns, an escaped quote, a run across
 # a block edge, delimiters on both sides of a block edge and no newline after the last row. The CRLF file holds the same
-# rows, the CR file a lone carriage return. The wide file has 300 columns with a quoted value, a short and a long
-# row. Expected results are those of the parent build.
+# rows, the CR file a lone carriage return, empty_first.csv an empty first value in every row. The wide file has 300
+# columns with a quoted value, a short and a long row. Expected results are those of the parent build.
+
+statement ok
+COPY (SELECT ',x' || i FROM range(100) t(i)) TO '{TEST_DIR}/empty_first.csv' (FORMAT CSV, HEADER false, QUOTE '', ESCAPE '');
 
 # LF, strict, counting
 statement error
@@ -530,6 +533,26 @@ statement error
 SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
 ----
 Invalid Input Error: The CSV Parser state machine reached an invalid state.
+
+# empty first value, selecting count(b)
+query I
+SELECT count(b) FROM read_csv('{TEST_DIR}/empty_first.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR'})
+----
+100
+
+# empty first value, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{TEST_DIR}/empty_first.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR'})
+----
+100
+
+# empty first value, selecting a
+query I
+SELECT a FROM read_csv('{TEST_DIR}/empty_first.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR'}) ORDER BY ALL LIMIT 3
+----
+NULL
+NULL
+NULL
 
 # wide, ignore_errors, selecting c0
 query I
