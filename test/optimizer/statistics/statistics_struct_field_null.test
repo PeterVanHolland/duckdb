@@ -28,9 +28,57 @@ SELECT id, s FROM structs WHERE s.b;
 1	{'y': a, 'i': 1, 'b': true}
 
 query II
+SELECT id, s FROM structs WHERE struct_extract_at(s, 3);
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
 SELECT id, s FROM structs WHERE s.y IN ('a', 'b') OR s.y LIKE 'a%';
 ----
 1	{'y': a, 'i': 1, 'b': true}
+
+# a DELETE reads the whole struct
+query I
+DELETE FROM structs WHERE s.b;
+----
+1
+
+query I
+SELECT id FROM structs ORDER BY id;
+----
+2
+3
+
+statement ok
+CREATE TABLE flags AS
+SELECT * FROM (VALUES (1, {'b': true, 'c': true}), (2, {'b': NULL, 'c': true}), (3, {'b': true, 'c': NULL}), (4, {'b': NULL, 'c': NULL}), (5, NULL)) t(id, s);
+
+query II
+SELECT id, s FROM flags WHERE s.b OR s.c ORDER BY id;
+----
+1	{'b': true, 'c': true}
+2	{'b': NULL, 'c': true}
+3	{'b': true, 'c': NULL}
+
+# statistics of a checkpointed table with several row groups
+statement ok
+ATTACH '{TEST_DIR}/statistics_struct_field_null.db' AS disk;
+
+statement ok
+CREATE TABLE disk.big AS SELECT i AS id, {'flag': CASE WHEN i % 10 = 0 THEN NULL ELSE true END} AS s FROM range(300000) r(i);
+
+statement ok
+CHECKPOINT disk;
+
+query I
+DELETE FROM disk.big WHERE s.flag;
+----
+270000
+
+query I
+SELECT count(*) FROM disk.big;
+----
+30000
 
 statement ok
 CREATE TABLE strings AS SELECT * FROM (VALUES (1, 'a'), (2, NULL)) t(id, y);
