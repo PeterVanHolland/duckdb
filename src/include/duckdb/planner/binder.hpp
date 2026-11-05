@@ -296,6 +296,8 @@ public:
 	QualifiedName ResolveCatalog(ClientContext &context, const QualifiedName &name, bool default_catalog = true);
 	static QualifiedName ResolveCatalog(CatalogEntryRetriever &retriever, const QualifiedName &name,
 	                                    bool default_catalog = true);
+	//! Marks the tables of a stored view query, which omit the name of the view's catalog
+	static void MarkViewReferences(QueryNode &node, Catalog &view_catalog);
 	//! Resolve the (possibly nested) name of a table into a name that can be looked up in the catalog. Unqualified
 	//! names and names with a single schema level keep the (catalog, schema, name) shape so that the search path
 	//! applies; a nested schema path yields a fully resolved [catalog, schema path..., name].
