@@ -228,6 +228,8 @@ public:
 	bool MeetsFlushCriteria() const;
 	CopyFunctionFlushBatchReason ToReason() const;
 	bool IsAcceptable() const;
+	//! A size as int64_t, where sizes above the largest BIGINT, which no batch reaches, become the largest BIGINT
+	static int64_t SizeAsInt64(idx_t size);
 
 private:
 	bool AnyBatchQualifies() const;
