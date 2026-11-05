@@ -446,11 +446,22 @@ bool Hugeint::TryCast(hugeint_t input, uhugeint_t &result) {
 	return true;
 }
 
+//! Converts the magnitude, which rounds once, and negating it is exact
+template <class REAL_T>
+static REAL_T HugeintToFloating(hugeint_t input) {
+	auto upper = static_cast<uint64_t>(input.upper);
+	if (input.upper >= 0) {
+		return Uhugeint::Cast<REAL_T>(uhugeint_t(upper, input.lower));
+	}
+	// two's complement negation, also of the minimum, whose magnitude 2^127 fits a uhugeint
+	auto lower = ~input.lower + 1;
+	upper = ~upper + (lower == 0 ? 1 : 0);
+	return -Uhugeint::Cast<REAL_T>(uhugeint_t(upper, lower));
+}
+
 template <>
 bool Hugeint::TryCast(hugeint_t input, float &result) {
-	double dbl_result;
-	Hugeint::TryCast(input, dbl_result);
-	result = (float)dbl_result;
+	result = HugeintToFloating<float>(input);
 	return true;
 }
 
@@ -470,11 +481,17 @@ bool CastBigintToFloating(hugeint_t input, REAL_T &result) {
 
 template <>
 bool Hugeint::TryCast(hugeint_t input, double &result) {
-	return CastBigintToFloating<double>(input, result);
+	result = HugeintToFloating<double>(input);
+	return true;
 }
 
 template <>
 bool Hugeint::TryCast(hugeint_t input, long double &result) {
+	if (std::numeric_limits<long double>::digits <= std::numeric_limits<double>::digits) {
+		// a long double that is no wider than a double rounds once like one
+		result = HugeintToFloating<double>(input);
+		return true;
+	}
 	return CastBigintToFloating<long double>(input, result);
 }
 

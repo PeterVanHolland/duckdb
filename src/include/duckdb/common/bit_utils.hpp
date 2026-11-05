@@ -24,7 +24,9 @@ struct CountZeros<uint64_t> {
 		if (!value_in) {
 			return 64;
 		}
-
+#if defined(__GNUC__) || defined(__clang__)
+		return static_cast<idx_t>(__builtin_clzll(value_in));
+#else
 		uint64_t value = value_in;
 
 		static constexpr uint64_t index64msb[] = {0,  47, 1,  56, 48, 27, 2,  60, 57, 49, 41, 37, 28, 16, 3,  61,
@@ -40,11 +42,8 @@ struct CountZeros<uint64_t> {
 		value |= value >> 8;
 		value |= value >> 16;
 		value |= value >> 32;
-		auto result = 63 - index64msb[(value * debruijn64msb) >> 58];
-#ifdef __clang__
-		D_ASSERT(result == static_cast<uint64_t>(__builtin_clzl(value_in)));
+		return 63 - index64msb[(value * debruijn64msb) >> 58];
 #endif
-		return result;
 	}
 	inline static idx_t Trailing(uint64_t value_in) {
 		if (!value_in) {
