@@ -1,0 +1,575 @@
+# name: test/sql/copy/csv/test_block_scan_skip_runs.test
+# description: Runs of unprojected columns are skipped by counting their delimiters, results, errors and rejects stay the same
+# group: [csv]
+
+# the fixtures depend on exact byte offsets
+require notwindows
+
+# block_scan_runs.csv holds, per row, a tab, a quoted value with the delimiter, a quote in an unquoted value, a space
+# before a quote, empty values, too few and too many columns, an escaped quote, a run across
+# a block edge, delimiters on both sides of a block edge and no newline after the last row. The CRLF file holds the same
+# rows, the CR file a lone carriage return. The wide file has 300 columns with a quoted value, a short and a long
+# row. Expected results are those of the parent build.
+
+# LF, strict, counting
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 7
+
+# LF, strict, the first column
+statement error
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 7
+
+# LF, ignore_errors, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+1
+2
+3
+4
+5
+6
+9
+10
+11
+12
+13
+14
+15
+
+# LF, ignore_errors, selecting f
+query I
+SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+f1
+f10
+f11
+f12
+f13
+f14
+f15
+f2
+f3
+f4
+f5
+f6
+f9
+
+# LF, ignore_errors, selecting c
+query I
+SELECT c FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+c,12
+c1
+c10
+c11
+c13
+c15
+c2
+c3
+c4
+c5
+c9
+NULL
+NULL
+
+# LF, ignore_errors, selecting a, f
+query II
+SELECT a, f FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+1	f1
+2	f2
+3	f3
+4	f4
+5	f5
+6	f6
+9	f9
+10	f10
+11	f11
+12	f12
+13	f13
+14	f14
+15	f15
+
+# LF, ignore_errors, selecting c, e
+query II
+SELECT c, e FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+c,12	e12
+c1	e1
+c10	e10
+c11	e11
+c13	e13
+c15	e15
+c2	e2
+c3	e3
+c4	e4
+c5	e5
+c9	e9
+NULL	e14
+NULL	e6
+
+# LF, ignore_errors, selecting replace(b, chr(9), '<TAB>')
+query I
+SELECT replace(b, chr(9), '<TAB>') FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+b"4
+b1
+b10
+b12
+b15
+b9
+b<TAB>2
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+q"11
+q,3
+x5
+xxxxxx
+NULL
+
+# LF, ignore_errors, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+----
+13
+
+# LF, null_padding and ignore_errors, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, null_padding=true, ignore_errors=true) ORDER BY ALL
+----
+1
+2
+3
+4
+5
+6
+7
+9
+10
+11
+12
+13
+14
+15
+
+# LF, buffer_size 128 and ignore_errors, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, buffer_size=128, ignore_errors=true) ORDER BY ALL
+----
+1
+2
+3
+4
+5
+6
+9
+10
+11
+12
+13
+14
+15
+
+# LF, null_padding and ignore_errors, selecting f
+query I
+SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, null_padding=true, ignore_errors=true) ORDER BY ALL
+----
+f1
+f10
+f11
+f12
+f13
+f14
+f15
+f2
+f3
+f4
+f5
+f6
+f9
+NULL
+
+# LF, buffer_size 128 and ignore_errors, selecting f
+query I
+SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, buffer_size=128, ignore_errors=true) ORDER BY ALL
+----
+f1
+f10
+f11
+f12
+f13
+f14
+f15
+f2
+f3
+f4
+f5
+f6
+f9
+
+# LF, null_padding and ignore_errors, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, null_padding=true, ignore_errors=true)
+----
+14
+
+# LF, buffer_size 128 and ignore_errors, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, buffer_size=128, ignore_errors=true)
+----
+13
+
+# LF, rejects of the rows, selecting a
+query IIIIII
+CREATE OR REPLACE TEMP TABLE t_rej_LF_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_LF_a', rejects_scan='scan_rej_LF_a'); SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_LF_a ORDER BY ALL
+----
+7	107	114	3	MISSING COLUMNS	7,b7,c7
+7	107	114	4	MISSING COLUMNS	7,b7,c7
+7	107	114	5	MISSING COLUMNS	7,b7,c7
+8	115	131	7	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,extra
+
+# LF, rejects of the rows, selecting f
+query IIIIII
+CREATE OR REPLACE TEMP TABLE t_rej_LF_f AS SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_LF_f', rejects_scan='scan_rej_LF_f'); SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_LF_f ORDER BY ALL
+----
+7	107	114	3	MISSING COLUMNS	7,b7,c7
+7	107	114	4	MISSING COLUMNS	7,b7,c7
+7	107	114	5	MISSING COLUMNS	7,b7,c7
+8	115	131	7	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,extra
+
+# LF, parallel=false and ignore_errors, selecting a, f
+query II
+SELECT a, f FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true, parallel=false) ORDER BY ALL
+----
+1	f1
+2	f2
+3	f3
+4	f4
+5	f5
+6	f6
+9	f9
+10	f10
+11	f11
+12	f12
+13	f13
+14	f14
+15	f15
+
+# CRLF, strict, counting
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 7
+
+# CRLF, strict, the first column
+statement error
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 7
+
+# CRLF, ignore_errors, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+1
+2
+3
+4
+5
+6
+9
+10
+11
+12
+13
+14
+15
+
+# CRLF, ignore_errors, selecting f
+query I
+SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+f1
+f10
+f11
+f12
+f13
+f14
+f15
+f2
+f3
+f4
+f5
+f6
+f9
+
+# CRLF, ignore_errors, selecting c
+query I
+SELECT c FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+c,12
+c1
+c10
+c11
+c13
+c15
+c2
+c3
+c4
+c5
+c9
+NULL
+NULL
+
+# CRLF, ignore_errors, selecting a, f
+query II
+SELECT a, f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+1	f1
+2	f2
+3	f3
+4	f4
+5	f5
+6	f6
+9	f9
+10	f10
+11	f11
+12	f12
+13	f13
+14	f14
+15	f15
+
+# CRLF, ignore_errors, selecting c, e
+query II
+SELECT c, e FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+c,12	e12
+c1	e1
+c10	e10
+c11	e11
+c13	e13
+c15	e15
+c2	e2
+c3	e3
+c4	e4
+c5	e5
+c9	e9
+NULL	e14
+NULL	e6
+
+# CRLF, ignore_errors, selecting replace(b, chr(9), '<TAB>')
+query I
+SELECT replace(b, chr(9), '<TAB>') FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+b"4
+b1
+b10
+b12
+b15
+b9
+b<TAB>2
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+q"11
+q,3
+x5
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NULL
+
+# CRLF, ignore_errors, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+----
+13
+
+# CRLF, null_padding and ignore_errors, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, null_padding=true, ignore_errors=true) ORDER BY ALL
+----
+1
+2
+3
+4
+5
+6
+7
+9
+10
+11
+12
+13
+14
+15
+
+# CRLF, buffer_size 128 and ignore_errors, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, buffer_size=128, ignore_errors=true) ORDER BY ALL
+----
+1
+2
+3
+4
+5
+6
+9
+10
+11
+12
+13
+14
+15
+
+# CRLF, null_padding and ignore_errors, selecting f
+query I
+SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, null_padding=true, ignore_errors=true) ORDER BY ALL
+----
+f1
+f10
+f11
+f12
+f13
+f14
+f15
+f2
+f3
+f4
+f5
+f6
+f9
+NULL
+
+# CRLF, buffer_size 128 and ignore_errors, selecting f
+query I
+SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, buffer_size=128, ignore_errors=true) ORDER BY ALL
+----
+f1
+f10
+f11
+f12
+f13
+f14
+f15
+f2
+f3
+f4
+f5
+f6
+f9
+
+# CRLF, null_padding and ignore_errors, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, null_padding=true, ignore_errors=true)
+----
+14
+
+# CRLF, buffer_size 128 and ignore_errors, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, buffer_size=128, ignore_errors=true)
+----
+13
+
+# CRLF, rejects of the rows, selecting a
+query IIIIII
+CREATE OR REPLACE TEMP TABLE t_rej_CRLF_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_CRLF_a', rejects_scan='scan_rej_CRLF_a'); SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_CRLF_a ORDER BY ALL
+----
+7	112	121	3	MISSING COLUMNS	<LF>7,b7,c7
+7	112	121	4	MISSING COLUMNS	<LF>7,b7,c7
+7	112	121	5	MISSING COLUMNS	<LF>7,b7,c7
+8	121	138	7	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,extra
+
+# CRLF, rejects of the rows, selecting f
+query IIIIII
+CREATE OR REPLACE TEMP TABLE t_rej_CRLF_f AS SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_CRLF_f', rejects_scan='scan_rej_CRLF_f'); SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_CRLF_f ORDER BY ALL
+----
+7	112	121	3	MISSING COLUMNS	<LF>7,b7,c7
+7	112	121	4	MISSING COLUMNS	<LF>7,b7,c7
+7	112	121	5	MISSING COLUMNS	<LF>7,b7,c7
+8	121	138	7	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,extra
+
+# CRLF, parallel=false and ignore_errors, selecting a, f
+query II
+SELECT a, f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true, parallel=false) ORDER BY ALL
+----
+1	f1
+2	f2
+3	f3
+4	f4
+5	f5
+6	f6
+9	f9
+10	f10
+11	f11
+12	f12
+13	f13
+14	f14
+15	f15
+
+# lone carriage return, ignore_errors, selecting a
+statement error
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+----
+Invalid Input Error: The CSV Parser state machine reached an invalid state.
+
+# lone carriage return, ignore_errors, selecting f
+statement error
+SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+----
+Invalid Input Error: The CSV Parser state machine reached an invalid state.
+
+# lone carriage return, ignore_errors, selecting count(*)
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+----
+Invalid Input Error: The CSV Parser state machine reached an invalid state.
+
+# lone carriage return, strict, selecting a
+statement error
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+----
+Invalid Input Error: The CSV Parser state machine reached an invalid state.
+
+# wide, ignore_errors, selecting c0
+query I
+SELECT c0 FROM read_csv('{DATA_DIR}/csv/block_scan_runs_wide.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'c0':'INTEGER','c1':'INTEGER','c2':'INTEGER','c3':'INTEGER','c4':'INTEGER','c5':'INTEGER','c6':'INTEGER','c7':'INTEGER','c8':'INTEGER','c9':'INTEGER','c10':'INTEGER','c11':'INTEGER','c12':'INTEGER','c13':'INTEGER','c14':'INTEGER','c15':'INTEGER','c16':'INTEGER','c17':'INTEGER','c18':'INTEGER','c19':'INTEGER','c20':'INTEGER','c21':'INTEGER','c22':'INTEGER','c23':'INTEGER','c24':'INTEGER','c25':'INTEGER','c26':'INTEGER','c27':'INTEGER','c28':'INTEGER','c29':'INTEGER','c30':'INTEGER','c31':'INTEGER','c32':'INTEGER','c33':'INTEGER','c34':'INTEGER','c35':'INTEGER','c36':'INTEGER','c37':'INTEGER','c38':'INTEGER','c39':'INTEGER','c40':'INTEGER','c41':'INTEGER','c42':'INTEGER','c43':'INTEGER','c44':'INTEGER','c45':'INTEGER','c46':'INTEGER','c47':'INTEGER','c48':'INTEGER','c49':'INTEGER','c50':'INTEGER','c51':'INTEGER','c52':'INTEGER','c53':'INTEGER','c54':'INTEGER','c55':'INTEGER','c56':'INTEGER','c57':'INTEGER','c58':'INTEGER','c59':'INTEGER','c60':'INTEGER','c61':'INTEGER','c62':'INTEGER','c63':'INTEGER','c64':'INTEGER','c65':'INTEGER','c66':'INTEGER','c67':'INTEGER','c68':'INTEGER','c69':'INTEGER','c70':'INTEGER','c71':'INTEGER','c72':'INTEGER','c73':'INTEGER','c74':'INTEGER','c75':'INTEGER','c76':'INTEGER','c77':'INTEGER','c78':'INTEGER','c79':'INTEGER','c80':'INTEGER','c81':'INTEGER','c82':'INTEGER','c83':'INTEGER','c84':'INTEGER','c85':'INTEGER','c86':'INTEGER','c87':'INTEGER','c88':'INTEGER','c89':'INTEGER','c90':'INTEGER','c91':'INTEGER','c92':'INTEGER','c93':'INTEGER','c94':'INTEGER','c95':'INTEGER','c96':'INTEGER','c97':'INTEGER','c98':'INTEGER','c99':'INTEGER','c100':'INTEGER','c101':'INTEGER','c102':'INTEGER','c103':'INTEGER','c104':'INTEGER','c105':'INTEGER','c106':'INTEGER','c107':'INTEGER','c108':'INTEGER','c109':'INTEGER','c110':'INTEGER','c111':'INTEGER','c112':'INTEGER','c113':'INTEGER','c114':'INTEGER','c115':'INTEGER','c116':'INTEGER','c117':'INTEGER','c118':'INTEGER','c119':'INTEGER','c120':'INTEGER','c121':'INTEGER','c122':'INTEGER','c123':'INTEGER','c124':'INTEGER','c125':'INTEGER','c126':'INTEGER','c127':'INTEGER','c128':'INTEGER','c129':'INTEGER','c130':'INTEGER','c131':'INTEGER','c132':'INTEGER','c133':'INTEGER','c134':'INTEGER','c135':'INTEGER','c136':'INTEGER','c137':'INTEGER','c138':'INTEGER','c139':'INTEGER','c140':'INTEGER','c141':'INTEGER','c142':'INTEGER','c143':'INTEGER','c144':'INTEGER','c145':'INTEGER','c146':'INTEGER','c147':'INTEGER','c148':'INTEGER','c149':'INTEGER','c150':'INTEGER','c151':'INTEGER','c152':'INTEGER','c153':'INTEGER','c154':'INTEGER','c155':'INTEGER','c156':'INTEGER','c157':'INTEGER','c158':'INTEGER','c159':'INTEGER','c160':'INTEGER','c161':'INTEGER','c162':'INTEGER','c163':'INTEGER','c164':'INTEGER','c165':'INTEGER','c166':'INTEGER','c167':'INTEGER','c168':'INTEGER','c169':'INTEGER','c170':'INTEGER','c171':'INTEGER','c172':'INTEGER','c173':'INTEGER','c174':'INTEGER','c175':'INTEGER','c176':'INTEGER','c177':'INTEGER','c178':'INTEGER','c179':'INTEGER','c180':'INTEGER','c181':'INTEGER','c182':'INTEGER','c183':'INTEGER','c184':'INTEGER','c185':'INTEGER','c186':'INTEGER','c187':'INTEGER','c188':'INTEGER','c189':'INTEGER','c190':'INTEGER','c191':'INTEGER','c192':'INTEGER','c193':'INTEGER','c194':'INTEGER','c195':'INTEGER','c196':'INTEGER','c197':'INTEGER','c198':'INTEGER','c199':'INTEGER','c200':'INTEGER','c201':'INTEGER','c202':'INTEGER','c203':'INTEGER','c204':'INTEGER','c205':'INTEGER','c206':'INTEGER','c207':'INTEGER','c208':'INTEGER','c209':'INTEGER','c210':'INTEGER','c211':'INTEGER','c212':'INTEGER','c213':'INTEGER','c214':'INTEGER','c215':'INTEGER','c216':'INTEGER','c217':'INTEGER','c218':'INTEGER','c219':'INTEGER','c220':'INTEGER','c221':'INTEGER','c222':'INTEGER','c223':'INTEGER','c224':'INTEGER','c225':'INTEGER','c226':'INTEGER','c227':'INTEGER','c228':'INTEGER','c229':'INTEGER','c230':'INTEGER','c231':'INTEGER','c232':'INTEGER','c233':'INTEGER','c234':'INTEGER','c235':'INTEGER','c236':'INTEGER','c237':'INTEGER','c238':'INTEGER','c239':'INTEGER','c240':'INTEGER','c241':'INTEGER','c242':'INTEGER','c243':'INTEGER','c244':'INTEGER','c245':'INTEGER','c246':'INTEGER','c247':'INTEGER','c248':'INTEGER','c249':'INTEGER','c250':'INTEGER','c251':'INTEGER','c252':'INTEGER','c253':'INTEGER','c254':'INTEGER','c255':'INTEGER','c256':'INTEGER','c257':'INTEGER','c258':'INTEGER','c259':'INTEGER','c260':'INTEGER','c261':'INTEGER','c262':'INTEGER','c263':'INTEGER','c264':'INTEGER','c265':'INTEGER','c266':'INTEGER','c267':'INTEGER','c268':'INTEGER','c269':'INTEGER','c270':'INTEGER','c271':'INTEGER','c272':'INTEGER','c273':'INTEGER','c274':'INTEGER','c275':'INTEGER','c276':'INTEGER','c277':'INTEGER','c278':'INTEGER','c279':'INTEGER','c280':'INTEGER','c281':'INTEGER','c282':'INTEGER','c283':'INTEGER','c284':'INTEGER','c285':'INTEGER','c286':'INTEGER','c287':'INTEGER','c288':'INTEGER','c289':'INTEGER','c290':'INTEGER','c291':'INTEGER','c292':'INTEGER','c293':'INTEGER','c294':'INTEGER','c295':'INTEGER','c296':'INTEGER','c297':'INTEGER','c298':'INTEGER','c299':'INTEGER'}, ignore_errors=true) ORDER BY ALL
+----
+0
+0
+0
+
+# wide, ignore_errors, selecting c299
+query I
+SELECT c299 FROM read_csv('{DATA_DIR}/csv/block_scan_runs_wide.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'c0':'INTEGER','c1':'INTEGER','c2':'INTEGER','c3':'INTEGER','c4':'INTEGER','c5':'INTEGER','c6':'INTEGER','c7':'INTEGER','c8':'INTEGER','c9':'INTEGER','c10':'INTEGER','c11':'INTEGER','c12':'INTEGER','c13':'INTEGER','c14':'INTEGER','c15':'INTEGER','c16':'INTEGER','c17':'INTEGER','c18':'INTEGER','c19':'INTEGER','c20':'INTEGER','c21':'INTEGER','c22':'INTEGER','c23':'INTEGER','c24':'INTEGER','c25':'INTEGER','c26':'INTEGER','c27':'INTEGER','c28':'INTEGER','c29':'INTEGER','c30':'INTEGER','c31':'INTEGER','c32':'INTEGER','c33':'INTEGER','c34':'INTEGER','c35':'INTEGER','c36':'INTEGER','c37':'INTEGER','c38':'INTEGER','c39':'INTEGER','c40':'INTEGER','c41':'INTEGER','c42':'INTEGER','c43':'INTEGER','c44':'INTEGER','c45':'INTEGER','c46':'INTEGER','c47':'INTEGER','c48':'INTEGER','c49':'INTEGER','c50':'INTEGER','c51':'INTEGER','c52':'INTEGER','c53':'INTEGER','c54':'INTEGER','c55':'INTEGER','c56':'INTEGER','c57':'INTEGER','c58':'INTEGER','c59':'INTEGER','c60':'INTEGER','c61':'INTEGER','c62':'INTEGER','c63':'INTEGER','c64':'INTEGER','c65':'INTEGER','c66':'INTEGER','c67':'INTEGER','c68':'INTEGER','c69':'INTEGER','c70':'INTEGER','c71':'INTEGER','c72':'INTEGER','c73':'INTEGER','c74':'INTEGER','c75':'INTEGER','c76':'INTEGER','c77':'INTEGER','c78':'INTEGER','c79':'INTEGER','c80':'INTEGER','c81':'INTEGER','c82':'INTEGER','c83':'INTEGER','c84':'INTEGER','c85':'INTEGER','c86':'INTEGER','c87':'INTEGER','c88':'INTEGER','c89':'INTEGER','c90':'INTEGER','c91':'INTEGER','c92':'INTEGER','c93':'INTEGER','c94':'INTEGER','c95':'INTEGER','c96':'INTEGER','c97':'INTEGER','c98':'INTEGER','c99':'INTEGER','c100':'INTEGER','c101':'INTEGER','c102':'INTEGER','c103':'INTEGER','c104':'INTEGER','c105':'INTEGER','c106':'INTEGER','c107':'INTEGER','c108':'INTEGER','c109':'INTEGER','c110':'INTEGER','c111':'INTEGER','c112':'INTEGER','c113':'INTEGER','c114':'INTEGER','c115':'INTEGER','c116':'INTEGER','c117':'INTEGER','c118':'INTEGER','c119':'INTEGER','c120':'INTEGER','c121':'INTEGER','c122':'INTEGER','c123':'INTEGER','c124':'INTEGER','c125':'INTEGER','c126':'INTEGER','c127':'INTEGER','c128':'INTEGER','c129':'INTEGER','c130':'INTEGER','c131':'INTEGER','c132':'INTEGER','c133':'INTEGER','c134':'INTEGER','c135':'INTEGER','c136':'INTEGER','c137':'INTEGER','c138':'INTEGER','c139':'INTEGER','c140':'INTEGER','c141':'INTEGER','c142':'INTEGER','c143':'INTEGER','c144':'INTEGER','c145':'INTEGER','c146':'INTEGER','c147':'INTEGER','c148':'INTEGER','c149':'INTEGER','c150':'INTEGER','c151':'INTEGER','c152':'INTEGER','c153':'INTEGER','c154':'INTEGER','c155':'INTEGER','c156':'INTEGER','c157':'INTEGER','c158':'INTEGER','c159':'INTEGER','c160':'INTEGER','c161':'INTEGER','c162':'INTEGER','c163':'INTEGER','c164':'INTEGER','c165':'INTEGER','c166':'INTEGER','c167':'INTEGER','c168':'INTEGER','c169':'INTEGER','c170':'INTEGER','c171':'INTEGER','c172':'INTEGER','c173':'INTEGER','c174':'INTEGER','c175':'INTEGER','c176':'INTEGER','c177':'INTEGER','c178':'INTEGER','c179':'INTEGER','c180':'INTEGER','c181':'INTEGER','c182':'INTEGER','c183':'INTEGER','c184':'INTEGER','c185':'INTEGER','c186':'INTEGER','c187':'INTEGER','c188':'INTEGER','c189':'INTEGER','c190':'INTEGER','c191':'INTEGER','c192':'INTEGER','c193':'INTEGER','c194':'INTEGER','c195':'INTEGER','c196':'INTEGER','c197':'INTEGER','c198':'INTEGER','c199':'INTEGER','c200':'INTEGER','c201':'INTEGER','c202':'INTEGER','c203':'INTEGER','c204':'INTEGER','c205':'INTEGER','c206':'INTEGER','c207':'INTEGER','c208':'INTEGER','c209':'INTEGER','c210':'INTEGER','c211':'INTEGER','c212':'INTEGER','c213':'INTEGER','c214':'INTEGER','c215':'INTEGER','c216':'INTEGER','c217':'INTEGER','c218':'INTEGER','c219':'INTEGER','c220':'INTEGER','c221':'INTEGER','c222':'INTEGER','c223':'INTEGER','c224':'INTEGER','c225':'INTEGER','c226':'INTEGER','c227':'INTEGER','c228':'INTEGER','c229':'INTEGER','c230':'INTEGER','c231':'INTEGER','c232':'INTEGER','c233':'INTEGER','c234':'INTEGER','c235':'INTEGER','c236':'INTEGER','c237':'INTEGER','c238':'INTEGER','c239':'INTEGER','c240':'INTEGER','c241':'INTEGER','c242':'INTEGER','c243':'INTEGER','c244':'INTEGER','c245':'INTEGER','c246':'INTEGER','c247':'INTEGER','c248':'INTEGER','c249':'INTEGER','c250':'INTEGER','c251':'INTEGER','c252':'INTEGER','c253':'INTEGER','c254':'INTEGER','c255':'INTEGER','c256':'INTEGER','c257':'INTEGER','c258':'INTEGER','c259':'INTEGER','c260':'INTEGER','c261':'INTEGER','c262':'INTEGER','c263':'INTEGER','c264':'INTEGER','c265':'INTEGER','c266':'INTEGER','c267':'INTEGER','c268':'INTEGER','c269':'INTEGER','c270':'INTEGER','c271':'INTEGER','c272':'INTEGER','c273':'INTEGER','c274':'INTEGER','c275':'INTEGER','c276':'INTEGER','c277':'INTEGER','c278':'INTEGER','c279':'INTEGER','c280':'INTEGER','c281':'INTEGER','c282':'INTEGER','c283':'INTEGER','c284':'INTEGER','c285':'INTEGER','c286':'INTEGER','c287':'INTEGER','c288':'INTEGER','c289':'INTEGER','c290':'INTEGER','c291':'INTEGER','c292':'INTEGER','c293':'INTEGER','c294':'INTEGER','c295':'INTEGER','c296':'INTEGER','c297':'INTEGER','c298':'INTEGER','c299':'INTEGER'}, ignore_errors=true) ORDER BY ALL
+----
+299
+299
+299
+
+# wide, ignore_errors, selecting c150
+query I
+SELECT c150 FROM read_csv('{DATA_DIR}/csv/block_scan_runs_wide.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'c0':'INTEGER','c1':'INTEGER','c2':'INTEGER','c3':'INTEGER','c4':'INTEGER','c5':'INTEGER','c6':'INTEGER','c7':'INTEGER','c8':'INTEGER','c9':'INTEGER','c10':'INTEGER','c11':'INTEGER','c12':'INTEGER','c13':'INTEGER','c14':'INTEGER','c15':'INTEGER','c16':'INTEGER','c17':'INTEGER','c18':'INTEGER','c19':'INTEGER','c20':'INTEGER','c21':'INTEGER','c22':'INTEGER','c23':'INTEGER','c24':'INTEGER','c25':'INTEGER','c26':'INTEGER','c27':'INTEGER','c28':'INTEGER','c29':'INTEGER','c30':'INTEGER','c31':'INTEGER','c32':'INTEGER','c33':'INTEGER','c34':'INTEGER','c35':'INTEGER','c36':'INTEGER','c37':'INTEGER','c38':'INTEGER','c39':'INTEGER','c40':'INTEGER','c41':'INTEGER','c42':'INTEGER','c43':'INTEGER','c44':'INTEGER','c45':'INTEGER','c46':'INTEGER','c47':'INTEGER','c48':'INTEGER','c49':'INTEGER','c50':'INTEGER','c51':'INTEGER','c52':'INTEGER','c53':'INTEGER','c54':'INTEGER','c55':'INTEGER','c56':'INTEGER','c57':'INTEGER','c58':'INTEGER','c59':'INTEGER','c60':'INTEGER','c61':'INTEGER','c62':'INTEGER','c63':'INTEGER','c64':'INTEGER','c65':'INTEGER','c66':'INTEGER','c67':'INTEGER','c68':'INTEGER','c69':'INTEGER','c70':'INTEGER','c71':'INTEGER','c72':'INTEGER','c73':'INTEGER','c74':'INTEGER','c75':'INTEGER','c76':'INTEGER','c77':'INTEGER','c78':'INTEGER','c79':'INTEGER','c80':'INTEGER','c81':'INTEGER','c82':'INTEGER','c83':'INTEGER','c84':'INTEGER','c85':'INTEGER','c86':'INTEGER','c87':'INTEGER','c88':'INTEGER','c89':'INTEGER','c90':'INTEGER','c91':'INTEGER','c92':'INTEGER','c93':'INTEGER','c94':'INTEGER','c95':'INTEGER','c96':'INTEGER','c97':'INTEGER','c98':'INTEGER','c99':'INTEGER','c100':'INTEGER','c101':'INTEGER','c102':'INTEGER','c103':'INTEGER','c104':'INTEGER','c105':'INTEGER','c106':'INTEGER','c107':'INTEGER','c108':'INTEGER','c109':'INTEGER','c110':'INTEGER','c111':'INTEGER','c112':'INTEGER','c113':'INTEGER','c114':'INTEGER','c115':'INTEGER','c116':'INTEGER','c117':'INTEGER','c118':'INTEGER','c119':'INTEGER','c120':'INTEGER','c121':'INTEGER','c122':'INTEGER','c123':'INTEGER','c124':'INTEGER','c125':'INTEGER','c126':'INTEGER','c127':'INTEGER','c128':'INTEGER','c129':'INTEGER','c130':'INTEGER','c131':'INTEGER','c132':'INTEGER','c133':'INTEGER','c134':'INTEGER','c135':'INTEGER','c136':'INTEGER','c137':'INTEGER','c138':'INTEGER','c139':'INTEGER','c140':'INTEGER','c141':'INTEGER','c142':'INTEGER','c143':'INTEGER','c144':'INTEGER','c145':'INTEGER','c146':'INTEGER','c147':'INTEGER','c148':'INTEGER','c149':'INTEGER','c150':'INTEGER','c151':'INTEGER','c152':'INTEGER','c153':'INTEGER','c154':'INTEGER','c155':'INTEGER','c156':'INTEGER','c157':'INTEGER','c158':'INTEGER','c159':'INTEGER','c160':'INTEGER','c161':'INTEGER','c162':'INTEGER','c163':'INTEGER','c164':'INTEGER','c165':'INTEGER','c166':'INTEGER','c167':'INTEGER','c168':'INTEGER','c169':'INTEGER','c170':'INTEGER','c171':'INTEGER','c172':'INTEGER','c173':'INTEGER','c174':'INTEGER','c175':'INTEGER','c176':'INTEGER','c177':'INTEGER','c178':'INTEGER','c179':'INTEGER','c180':'INTEGER','c181':'INTEGER','c182':'INTEGER','c183':'INTEGER','c184':'INTEGER','c185':'INTEGER','c186':'INTEGER','c187':'INTEGER','c188':'INTEGER','c189':'INTEGER','c190':'INTEGER','c191':'INTEGER','c192':'INTEGER','c193':'INTEGER','c194':'INTEGER','c195':'INTEGER','c196':'INTEGER','c197':'INTEGER','c198':'INTEGER','c199':'INTEGER','c200':'INTEGER','c201':'INTEGER','c202':'INTEGER','c203':'INTEGER','c204':'INTEGER','c205':'INTEGER','c206':'INTEGER','c207':'INTEGER','c208':'INTEGER','c209':'INTEGER','c210':'INTEGER','c211':'INTEGER','c212':'INTEGER','c213':'INTEGER','c214':'INTEGER','c215':'INTEGER','c216':'INTEGER','c217':'INTEGER','c218':'INTEGER','c219':'INTEGER','c220':'INTEGER','c221':'INTEGER','c222':'INTEGER','c223':'INTEGER','c224':'INTEGER','c225':'INTEGER','c226':'INTEGER','c227':'INTEGER','c228':'INTEGER','c229':'INTEGER','c230':'INTEGER','c231':'INTEGER','c232':'INTEGER','c233':'INTEGER','c234':'INTEGER','c235':'INTEGER','c236':'INTEGER','c237':'INTEGER','c238':'INTEGER','c239':'INTEGER','c240':'INTEGER','c241':'INTEGER','c242':'INTEGER','c243':'INTEGER','c244':'INTEGER','c245':'INTEGER','c246':'INTEGER','c247':'INTEGER','c248':'INTEGER','c249':'INTEGER','c250':'INTEGER','c251':'INTEGER','c252':'INTEGER','c253':'INTEGER','c254':'INTEGER','c255':'INTEGER','c256':'INTEGER','c257':'INTEGER','c258':'INTEGER','c259':'INTEGER','c260':'INTEGER','c261':'INTEGER','c262':'INTEGER','c263':'INTEGER','c264':'INTEGER','c265':'INTEGER','c266':'INTEGER','c267':'INTEGER','c268':'INTEGER','c269':'INTEGER','c270':'INTEGER','c271':'INTEGER','c272':'INTEGER','c273':'INTEGER','c274':'INTEGER','c275':'INTEGER','c276':'INTEGER','c277':'INTEGER','c278':'INTEGER','c279':'INTEGER','c280':'INTEGER','c281':'INTEGER','c282':'INTEGER','c283':'INTEGER','c284':'INTEGER','c285':'INTEGER','c286':'INTEGER','c287':'INTEGER','c288':'INTEGER','c289':'INTEGER','c290':'INTEGER','c291':'INTEGER','c292':'INTEGER','c293':'INTEGER','c294':'INTEGER','c295':'INTEGER','c296':'INTEGER','c297':'INTEGER','c298':'INTEGER','c299':'INTEGER'}, ignore_errors=true) ORDER BY ALL
+----
+150
+150
+
+# wide, ignore_errors, selecting c149, c151
+query II
+SELECT c149, c151 FROM read_csv('{DATA_DIR}/csv/block_scan_runs_wide.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'c0':'INTEGER','c1':'INTEGER','c2':'INTEGER','c3':'INTEGER','c4':'INTEGER','c5':'INTEGER','c6':'INTEGER','c7':'INTEGER','c8':'INTEGER','c9':'INTEGER','c10':'INTEGER','c11':'INTEGER','c12':'INTEGER','c13':'INTEGER','c14':'INTEGER','c15':'INTEGER','c16':'INTEGER','c17':'INTEGER','c18':'INTEGER','c19':'INTEGER','c20':'INTEGER','c21':'INTEGER','c22':'INTEGER','c23':'INTEGER','c24':'INTEGER','c25':'INTEGER','c26':'INTEGER','c27':'INTEGER','c28':'INTEGER','c29':'INTEGER','c30':'INTEGER','c31':'INTEGER','c32':'INTEGER','c33':'INTEGER','c34':'INTEGER','c35':'INTEGER','c36':'INTEGER','c37':'INTEGER','c38':'INTEGER','c39':'INTEGER','c40':'INTEGER','c41':'INTEGER','c42':'INTEGER','c43':'INTEGER','c44':'INTEGER','c45':'INTEGER','c46':'INTEGER','c47':'INTEGER','c48':'INTEGER','c49':'INTEGER','c50':'INTEGER','c51':'INTEGER','c52':'INTEGER','c53':'INTEGER','c54':'INTEGER','c55':'INTEGER','c56':'INTEGER','c57':'INTEGER','c58':'INTEGER','c59':'INTEGER','c60':'INTEGER','c61':'INTEGER','c62':'INTEGER','c63':'INTEGER','c64':'INTEGER','c65':'INTEGER','c66':'INTEGER','c67':'INTEGER','c68':'INTEGER','c69':'INTEGER','c70':'INTEGER','c71':'INTEGER','c72':'INTEGER','c73':'INTEGER','c74':'INTEGER','c75':'INTEGER','c76':'INTEGER','c77':'INTEGER','c78':'INTEGER','c79':'INTEGER','c80':'INTEGER','c81':'INTEGER','c82':'INTEGER','c83':'INTEGER','c84':'INTEGER','c85':'INTEGER','c86':'INTEGER','c87':'INTEGER','c88':'INTEGER','c89':'INTEGER','c90':'INTEGER','c91':'INTEGER','c92':'INTEGER','c93':'INTEGER','c94':'INTEGER','c95':'INTEGER','c96':'INTEGER','c97':'INTEGER','c98':'INTEGER','c99':'INTEGER','c100':'INTEGER','c101':'INTEGER','c102':'INTEGER','c103':'INTEGER','c104':'INTEGER','c105':'INTEGER','c106':'INTEGER','c107':'INTEGER','c108':'INTEGER','c109':'INTEGER','c110':'INTEGER','c111':'INTEGER','c112':'INTEGER','c113':'INTEGER','c114':'INTEGER','c115':'INTEGER','c116':'INTEGER','c117':'INTEGER','c118':'INTEGER','c119':'INTEGER','c120':'INTEGER','c121':'INTEGER','c122':'INTEGER','c123':'INTEGER','c124':'INTEGER','c125':'INTEGER','c126':'INTEGER','c127':'INTEGER','c128':'INTEGER','c129':'INTEGER','c130':'INTEGER','c131':'INTEGER','c132':'INTEGER','c133':'INTEGER','c134':'INTEGER','c135':'INTEGER','c136':'INTEGER','c137':'INTEGER','c138':'INTEGER','c139':'INTEGER','c140':'INTEGER','c141':'INTEGER','c142':'INTEGER','c143':'INTEGER','c144':'INTEGER','c145':'INTEGER','c146':'INTEGER','c147':'INTEGER','c148':'INTEGER','c149':'INTEGER','c150':'INTEGER','c151':'INTEGER','c152':'INTEGER','c153':'INTEGER','c154':'INTEGER','c155':'INTEGER','c156':'INTEGER','c157':'INTEGER','c158':'INTEGER','c159':'INTEGER','c160':'INTEGER','c161':'INTEGER','c162':'INTEGER','c163':'INTEGER','c164':'INTEGER','c165':'INTEGER','c166':'INTEGER','c167':'INTEGER','c168':'INTEGER','c169':'INTEGER','c170':'INTEGER','c171':'INTEGER','c172':'INTEGER','c173':'INTEGER','c174':'INTEGER','c175':'INTEGER','c176':'INTEGER','c177':'INTEGER','c178':'INTEGER','c179':'INTEGER','c180':'INTEGER','c181':'INTEGER','c182':'INTEGER','c183':'INTEGER','c184':'INTEGER','c185':'INTEGER','c186':'INTEGER','c187':'INTEGER','c188':'INTEGER','c189':'INTEGER','c190':'INTEGER','c191':'INTEGER','c192':'INTEGER','c193':'INTEGER','c194':'INTEGER','c195':'INTEGER','c196':'INTEGER','c197':'INTEGER','c198':'INTEGER','c199':'INTEGER','c200':'INTEGER','c201':'INTEGER','c202':'INTEGER','c203':'INTEGER','c204':'INTEGER','c205':'INTEGER','c206':'INTEGER','c207':'INTEGER','c208':'INTEGER','c209':'INTEGER','c210':'INTEGER','c211':'INTEGER','c212':'INTEGER','c213':'INTEGER','c214':'INTEGER','c215':'INTEGER','c216':'INTEGER','c217':'INTEGER','c218':'INTEGER','c219':'INTEGER','c220':'INTEGER','c221':'INTEGER','c222':'INTEGER','c223':'INTEGER','c224':'INTEGER','c225':'INTEGER','c226':'INTEGER','c227':'INTEGER','c228':'INTEGER','c229':'INTEGER','c230':'INTEGER','c231':'INTEGER','c232':'INTEGER','c233':'INTEGER','c234':'INTEGER','c235':'INTEGER','c236':'INTEGER','c237':'INTEGER','c238':'INTEGER','c239':'INTEGER','c240':'INTEGER','c241':'INTEGER','c242':'INTEGER','c243':'INTEGER','c244':'INTEGER','c245':'INTEGER','c246':'INTEGER','c247':'INTEGER','c248':'INTEGER','c249':'INTEGER','c250':'INTEGER','c251':'INTEGER','c252':'INTEGER','c253':'INTEGER','c254':'INTEGER','c255':'INTEGER','c256':'INTEGER','c257':'INTEGER','c258':'INTEGER','c259':'INTEGER','c260':'INTEGER','c261':'INTEGER','c262':'INTEGER','c263':'INTEGER','c264':'INTEGER','c265':'INTEGER','c266':'INTEGER','c267':'INTEGER','c268':'INTEGER','c269':'INTEGER','c270':'INTEGER','c271':'INTEGER','c272':'INTEGER','c273':'INTEGER','c274':'INTEGER','c275':'INTEGER','c276':'INTEGER','c277':'INTEGER','c278':'INTEGER','c279':'INTEGER','c280':'INTEGER','c281':'INTEGER','c282':'INTEGER','c283':'INTEGER','c284':'INTEGER','c285':'INTEGER','c286':'INTEGER','c287':'INTEGER','c288':'INTEGER','c289':'INTEGER','c290':'INTEGER','c291':'INTEGER','c292':'INTEGER','c293':'INTEGER','c294':'INTEGER','c295':'INTEGER','c296':'INTEGER','c297':'INTEGER','c298':'INTEGER','c299':'INTEGER'}, ignore_errors=true) ORDER BY ALL
+----
+149	151
+149	151
+149	151
+
+# wide, ignore_errors, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_wide.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'c0':'INTEGER','c1':'INTEGER','c2':'INTEGER','c3':'INTEGER','c4':'INTEGER','c5':'INTEGER','c6':'INTEGER','c7':'INTEGER','c8':'INTEGER','c9':'INTEGER','c10':'INTEGER','c11':'INTEGER','c12':'INTEGER','c13':'INTEGER','c14':'INTEGER','c15':'INTEGER','c16':'INTEGER','c17':'INTEGER','c18':'INTEGER','c19':'INTEGER','c20':'INTEGER','c21':'INTEGER','c22':'INTEGER','c23':'INTEGER','c24':'INTEGER','c25':'INTEGER','c26':'INTEGER','c27':'INTEGER','c28':'INTEGER','c29':'INTEGER','c30':'INTEGER','c31':'INTEGER','c32':'INTEGER','c33':'INTEGER','c34':'INTEGER','c35':'INTEGER','c36':'INTEGER','c37':'INTEGER','c38':'INTEGER','c39':'INTEGER','c40':'INTEGER','c41':'INTEGER','c42':'INTEGER','c43':'INTEGER','c44':'INTEGER','c45':'INTEGER','c46':'INTEGER','c47':'INTEGER','c48':'INTEGER','c49':'INTEGER','c50':'INTEGER','c51':'INTEGER','c52':'INTEGER','c53':'INTEGER','c54':'INTEGER','c55':'INTEGER','c56':'INTEGER','c57':'INTEGER','c58':'INTEGER','c59':'INTEGER','c60':'INTEGER','c61':'INTEGER','c62':'INTEGER','c63':'INTEGER','c64':'INTEGER','c65':'INTEGER','c66':'INTEGER','c67':'INTEGER','c68':'INTEGER','c69':'INTEGER','c70':'INTEGER','c71':'INTEGER','c72':'INTEGER','c73':'INTEGER','c74':'INTEGER','c75':'INTEGER','c76':'INTEGER','c77':'INTEGER','c78':'INTEGER','c79':'INTEGER','c80':'INTEGER','c81':'INTEGER','c82':'INTEGER','c83':'INTEGER','c84':'INTEGER','c85':'INTEGER','c86':'INTEGER','c87':'INTEGER','c88':'INTEGER','c89':'INTEGER','c90':'INTEGER','c91':'INTEGER','c92':'INTEGER','c93':'INTEGER','c94':'INTEGER','c95':'INTEGER','c96':'INTEGER','c97':'INTEGER','c98':'INTEGER','c99':'INTEGER','c100':'INTEGER','c101':'INTEGER','c102':'INTEGER','c103':'INTEGER','c104':'INTEGER','c105':'INTEGER','c106':'INTEGER','c107':'INTEGER','c108':'INTEGER','c109':'INTEGER','c110':'INTEGER','c111':'INTEGER','c112':'INTEGER','c113':'INTEGER','c114':'INTEGER','c115':'INTEGER','c116':'INTEGER','c117':'INTEGER','c118':'INTEGER','c119':'INTEGER','c120':'INTEGER','c121':'INTEGER','c122':'INTEGER','c123':'INTEGER','c124':'INTEGER','c125':'INTEGER','c126':'INTEGER','c127':'INTEGER','c128':'INTEGER','c129':'INTEGER','c130':'INTEGER','c131':'INTEGER','c132':'INTEGER','c133':'INTEGER','c134':'INTEGER','c135':'INTEGER','c136':'INTEGER','c137':'INTEGER','c138':'INTEGER','c139':'INTEGER','c140':'INTEGER','c141':'INTEGER','c142':'INTEGER','c143':'INTEGER','c144':'INTEGER','c145':'INTEGER','c146':'INTEGER','c147':'INTEGER','c148':'INTEGER','c149':'INTEGER','c150':'INTEGER','c151':'INTEGER','c152':'INTEGER','c153':'INTEGER','c154':'INTEGER','c155':'INTEGER','c156':'INTEGER','c157':'INTEGER','c158':'INTEGER','c159':'INTEGER','c160':'INTEGER','c161':'INTEGER','c162':'INTEGER','c163':'INTEGER','c164':'INTEGER','c165':'INTEGER','c166':'INTEGER','c167':'INTEGER','c168':'INTEGER','c169':'INTEGER','c170':'INTEGER','c171':'INTEGER','c172':'INTEGER','c173':'INTEGER','c174':'INTEGER','c175':'INTEGER','c176':'INTEGER','c177':'INTEGER','c178':'INTEGER','c179':'INTEGER','c180':'INTEGER','c181':'INTEGER','c182':'INTEGER','c183':'INTEGER','c184':'INTEGER','c185':'INTEGER','c186':'INTEGER','c187':'INTEGER','c188':'INTEGER','c189':'INTEGER','c190':'INTEGER','c191':'INTEGER','c192':'INTEGER','c193':'INTEGER','c194':'INTEGER','c195':'INTEGER','c196':'INTEGER','c197':'INTEGER','c198':'INTEGER','c199':'INTEGER','c200':'INTEGER','c201':'INTEGER','c202':'INTEGER','c203':'INTEGER','c204':'INTEGER','c205':'INTEGER','c206':'INTEGER','c207':'INTEGER','c208':'INTEGER','c209':'INTEGER','c210':'INTEGER','c211':'INTEGER','c212':'INTEGER','c213':'INTEGER','c214':'INTEGER','c215':'INTEGER','c216':'INTEGER','c217':'INTEGER','c218':'INTEGER','c219':'INTEGER','c220':'INTEGER','c221':'INTEGER','c222':'INTEGER','c223':'INTEGER','c224':'INTEGER','c225':'INTEGER','c226':'INTEGER','c227':'INTEGER','c228':'INTEGER','c229':'INTEGER','c230':'INTEGER','c231':'INTEGER','c232':'INTEGER','c233':'INTEGER','c234':'INTEGER','c235':'INTEGER','c236':'INTEGER','c237':'INTEGER','c238':'INTEGER','c239':'INTEGER','c240':'INTEGER','c241':'INTEGER','c242':'INTEGER','c243':'INTEGER','c244':'INTEGER','c245':'INTEGER','c246':'INTEGER','c247':'INTEGER','c248':'INTEGER','c249':'INTEGER','c250':'INTEGER','c251':'INTEGER','c252':'INTEGER','c253':'INTEGER','c254':'INTEGER','c255':'INTEGER','c256':'INTEGER','c257':'INTEGER','c258':'INTEGER','c259':'INTEGER','c260':'INTEGER','c261':'INTEGER','c262':'INTEGER','c263':'INTEGER','c264':'INTEGER','c265':'INTEGER','c266':'INTEGER','c267':'INTEGER','c268':'INTEGER','c269':'INTEGER','c270':'INTEGER','c271':'INTEGER','c272':'INTEGER','c273':'INTEGER','c274':'INTEGER','c275':'INTEGER','c276':'INTEGER','c277':'INTEGER','c278':'INTEGER','c279':'INTEGER','c280':'INTEGER','c281':'INTEGER','c282':'INTEGER','c283':'INTEGER','c284':'INTEGER','c285':'INTEGER','c286':'INTEGER','c287':'INTEGER','c288':'INTEGER','c289':'INTEGER','c290':'INTEGER','c291':'INTEGER','c292':'INTEGER','c293':'INTEGER','c294':'INTEGER','c295':'INTEGER','c296':'INTEGER','c297':'INTEGER','c298':'INTEGER','c299':'INTEGER'}, ignore_errors=true)
+----
+3
+
+# wide, strict, selecting c0
+statement error
+SELECT c0 FROM read_csv('{DATA_DIR}/csv/block_scan_runs_wide.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'c0':'INTEGER','c1':'INTEGER','c2':'INTEGER','c3':'INTEGER','c4':'INTEGER','c5':'INTEGER','c6':'INTEGER','c7':'INTEGER','c8':'INTEGER','c9':'INTEGER','c10':'INTEGER','c11':'INTEGER','c12':'INTEGER','c13':'INTEGER','c14':'INTEGER','c15':'INTEGER','c16':'INTEGER','c17':'INTEGER','c18':'INTEGER','c19':'INTEGER','c20':'INTEGER','c21':'INTEGER','c22':'INTEGER','c23':'INTEGER','c24':'INTEGER','c25':'INTEGER','c26':'INTEGER','c27':'INTEGER','c28':'INTEGER','c29':'INTEGER','c30':'INTEGER','c31':'INTEGER','c32':'INTEGER','c33':'INTEGER','c34':'INTEGER','c35':'INTEGER','c36':'INTEGER','c37':'INTEGER','c38':'INTEGER','c39':'INTEGER','c40':'INTEGER','c41':'INTEGER','c42':'INTEGER','c43':'INTEGER','c44':'INTEGER','c45':'INTEGER','c46':'INTEGER','c47':'INTEGER','c48':'INTEGER','c49':'INTEGER','c50':'INTEGER','c51':'INTEGER','c52':'INTEGER','c53':'INTEGER','c54':'INTEGER','c55':'INTEGER','c56':'INTEGER','c57':'INTEGER','c58':'INTEGER','c59':'INTEGER','c60':'INTEGER','c61':'INTEGER','c62':'INTEGER','c63':'INTEGER','c64':'INTEGER','c65':'INTEGER','c66':'INTEGER','c67':'INTEGER','c68':'INTEGER','c69':'INTEGER','c70':'INTEGER','c71':'INTEGER','c72':'INTEGER','c73':'INTEGER','c74':'INTEGER','c75':'INTEGER','c76':'INTEGER','c77':'INTEGER','c78':'INTEGER','c79':'INTEGER','c80':'INTEGER','c81':'INTEGER','c82':'INTEGER','c83':'INTEGER','c84':'INTEGER','c85':'INTEGER','c86':'INTEGER','c87':'INTEGER','c88':'INTEGER','c89':'INTEGER','c90':'INTEGER','c91':'INTEGER','c92':'INTEGER','c93':'INTEGER','c94':'INTEGER','c95':'INTEGER','c96':'INTEGER','c97':'INTEGER','c98':'INTEGER','c99':'INTEGER','c100':'INTEGER','c101':'INTEGER','c102':'INTEGER','c103':'INTEGER','c104':'INTEGER','c105':'INTEGER','c106':'INTEGER','c107':'INTEGER','c108':'INTEGER','c109':'INTEGER','c110':'INTEGER','c111':'INTEGER','c112':'INTEGER','c113':'INTEGER','c114':'INTEGER','c115':'INTEGER','c116':'INTEGER','c117':'INTEGER','c118':'INTEGER','c119':'INTEGER','c120':'INTEGER','c121':'INTEGER','c122':'INTEGER','c123':'INTEGER','c124':'INTEGER','c125':'INTEGER','c126':'INTEGER','c127':'INTEGER','c128':'INTEGER','c129':'INTEGER','c130':'INTEGER','c131':'INTEGER','c132':'INTEGER','c133':'INTEGER','c134':'INTEGER','c135':'INTEGER','c136':'INTEGER','c137':'INTEGER','c138':'INTEGER','c139':'INTEGER','c140':'INTEGER','c141':'INTEGER','c142':'INTEGER','c143':'INTEGER','c144':'INTEGER','c145':'INTEGER','c146':'INTEGER','c147':'INTEGER','c148':'INTEGER','c149':'INTEGER','c150':'INTEGER','c151':'INTEGER','c152':'INTEGER','c153':'INTEGER','c154':'INTEGER','c155':'INTEGER','c156':'INTEGER','c157':'INTEGER','c158':'INTEGER','c159':'INTEGER','c160':'INTEGER','c161':'INTEGER','c162':'INTEGER','c163':'INTEGER','c164':'INTEGER','c165':'INTEGER','c166':'INTEGER','c167':'INTEGER','c168':'INTEGER','c169':'INTEGER','c170':'INTEGER','c171':'INTEGER','c172':'INTEGER','c173':'INTEGER','c174':'INTEGER','c175':'INTEGER','c176':'INTEGER','c177':'INTEGER','c178':'INTEGER','c179':'INTEGER','c180':'INTEGER','c181':'INTEGER','c182':'INTEGER','c183':'INTEGER','c184':'INTEGER','c185':'INTEGER','c186':'INTEGER','c187':'INTEGER','c188':'INTEGER','c189':'INTEGER','c190':'INTEGER','c191':'INTEGER','c192':'INTEGER','c193':'INTEGER','c194':'INTEGER','c195':'INTEGER','c196':'INTEGER','c197':'INTEGER','c198':'INTEGER','c199':'INTEGER','c200':'INTEGER','c201':'INTEGER','c202':'INTEGER','c203':'INTEGER','c204':'INTEGER','c205':'INTEGER','c206':'INTEGER','c207':'INTEGER','c208':'INTEGER','c209':'INTEGER','c210':'INTEGER','c211':'INTEGER','c212':'INTEGER','c213':'INTEGER','c214':'INTEGER','c215':'INTEGER','c216':'INTEGER','c217':'INTEGER','c218':'INTEGER','c219':'INTEGER','c220':'INTEGER','c221':'INTEGER','c222':'INTEGER','c223':'INTEGER','c224':'INTEGER','c225':'INTEGER','c226':'INTEGER','c227':'INTEGER','c228':'INTEGER','c229':'INTEGER','c230':'INTEGER','c231':'INTEGER','c232':'INTEGER','c233':'INTEGER','c234':'INTEGER','c235':'INTEGER','c236':'INTEGER','c237':'INTEGER','c238':'INTEGER','c239':'INTEGER','c240':'INTEGER','c241':'INTEGER','c242':'INTEGER','c243':'INTEGER','c244':'INTEGER','c245':'INTEGER','c246':'INTEGER','c247':'INTEGER','c248':'INTEGER','c249':'INTEGER','c250':'INTEGER','c251':'INTEGER','c252':'INTEGER','c253':'INTEGER','c254':'INTEGER','c255':'INTEGER','c256':'INTEGER','c257':'INTEGER','c258':'INTEGER','c259':'INTEGER','c260':'INTEGER','c261':'INTEGER','c262':'INTEGER','c263':'INTEGER','c264':'INTEGER','c265':'INTEGER','c266':'INTEGER','c267':'INTEGER','c268':'INTEGER','c269':'INTEGER','c270':'INTEGER','c271':'INTEGER','c272':'INTEGER','c273':'INTEGER','c274':'INTEGER','c275':'INTEGER','c276':'INTEGER','c277':'INTEGER','c278':'INTEGER','c279':'INTEGER','c280':'INTEGER','c281':'INTEGER','c282':'INTEGER','c283':'INTEGER','c284':'INTEGER','c285':'INTEGER','c286':'INTEGER','c287':'INTEGER','c288':'INTEGER','c289':'INTEGER','c290':'INTEGER','c291':'INTEGER','c292':'INTEGER','c293':'INTEGER','c294':'INTEGER','c295':'INTEGER','c296':'INTEGER','c297':'INTEGER','c298':'INTEGER','c299':'INTEGER'})
+----
+Invalid Input Error: CSV Error on Line: 3

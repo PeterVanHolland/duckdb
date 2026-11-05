@@ -98,6 +98,13 @@ public:
 	static inline bool AddRowWithoutValue(T &result, const idx_t buffer_pos) {
 		return false;
 	}
+	template <class T>
+	static inline idx_t SkippableRun(const T &result, const idx_t buffer_pos) {
+		return 0;
+	}
+	template <class T>
+	static inline void SkipValues(T &result, const idx_t count, const idx_t buffer_pos) {
+	}
 
 	//! Set by the block scan while it adds a value whose bytes all lie in blocks without high bits, so the value
 	//! needs no UTF-8 validation
@@ -322,6 +329,40 @@ protected:
 		}
 	}
 
+	//! Consumes the delimiter at `at` and those of the unprojected columns that follow in the block, `run` at most,
+	//! with one bookkeeping call. Returns the first byte after the last one
+	template <class T>
+	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, uint64_t &candidates,
+	                        const idx_t pos, const idx_t limit) {
+		idx_t last_delimiter = at;
+		CSVState before_last = before;
+		idx_t consumed = 1;
+		while (consumed < run && candidates) {
+			const idx_t next = pos + CountZeros<uint64_t>::Trailing(candidates);
+			if (next >= limit) {
+				break;
+			}
+			const auto byte = static_cast<uint8_t>(buffer_handle_ptr[next]);
+			if (byte != block_delimiter) {
+				if (byte == '\n' || byte == '\r' || byte == block_quote) {
+					break;
+				}
+				// a false candidate of the mask, data
+				candidates &= candidates - 1;
+				continue;
+			}
+			candidates &= candidates - 1;
+			before_last = StateAfterData(CSVState::DELIMITER, last_delimiter + 1, next);
+			last_delimiter = next;
+			consumed++;
+		}
+		states.states[0] = before_last;
+		states.states[1] = CSVState::DELIMITER;
+		iterator.pos.buffer_pos = last_delimiter;
+		T::SkipValues(result, consumed, last_delimiter);
+		return last_delimiter + 1;
+	}
+
 	//! The row end at `at`, `before` is the state before it, `ascii` whether the last value lies in ASCII blocks.
 	//! Returns true when the result is full
 	template <class T>
@@ -443,9 +484,17 @@ protected:
 				if (byte == block_delimiter) {
 					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::DELIMITER);
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
-					BlockDelimiter(result, at, before, value_ascii);
+					const idx_t run = T::SkippableRun(result, at);
+					if (run > 0) {
+						const idx_t run_end = BlockDelimiterRun(result, at, before, run, candidates, pos, limit);
+						D_ASSERT(ReplayStates(last, run_end).states[1] == CSVState::DELIMITER);
+						D_ASSERT(ReplayStates(last, run_end).states[0] == states.states[0]);
+						last = run_end;
+					} else {
+						BlockDelimiter(result, at, before, value_ascii);
+						last = at + 1;
+					}
 					value_ascii = block_ascii;
-					last = at + 1;
 					continue;
 				}
 				if (block_quote != '\0' && byte == block_quote) {
