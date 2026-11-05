@@ -217,7 +217,7 @@ struct ICUFromNaiveTimestamp : public ICUDateFunc {
 			using NAIVE = timestamp_base_t<DST::PRECISION, false>;
 			NAIVE naive;
 			if (!TryCast::Operation(input, naive)) {
-				HandleCastError::AssignError(CastExceptionText<SRC, NAIVE>(input), parameters);
+				HandleCastError::AssignError("Could not convert Timestamp to higher precision.", parameters);
 				all_converted = false;
 				return nullopt;
 			}
@@ -281,11 +281,15 @@ struct ICUFromNaiveTimestamp : public ICUDateFunc {
 		auto &casts = config.GetCastFunctions();
 
 		AddCast(casts, LogicalType::TIMESTAMP, LogicalType::TIMESTAMP_TZ);
+		AddCast(casts, LogicalType::TIMESTAMP, LogicalType::TIMESTAMP_TZ_NS);
 		AddCast(casts, LogicalType::TIMESTAMP_MS, LogicalType::TIMESTAMP_TZ);
+		AddCast(casts, LogicalType::TIMESTAMP_MS, LogicalType::TIMESTAMP_TZ_NS);
 		AddCast(casts, LogicalType::TIMESTAMP_NS, LogicalType::TIMESTAMP_TZ);
 		AddCast(casts, LogicalType::TIMESTAMP_NS, LogicalType::TIMESTAMP_TZ_NS);
 		AddCast(casts, LogicalType::TIMESTAMP_S, LogicalType::TIMESTAMP_TZ);
+		AddCast(casts, LogicalType::TIMESTAMP_S, LogicalType::TIMESTAMP_TZ_NS);
 		AddCast(casts, LogicalType::DATE, LogicalType::TIMESTAMP_TZ);
+		AddCast(casts, LogicalType::DATE, LogicalType::TIMESTAMP_TZ_NS);
 	}
 };
 
@@ -424,8 +428,12 @@ struct ICUToNaiveTimestamp : public ICUDateFunc {
 			switch (target.id()) {
 			case LogicalType::TIMESTAMP:
 				return BoundCastInfo(CastToNaive<timestamp_tz_ns_t, timestamp_t>, std::move(cast_data));
+			case LogicalType::TIMESTAMP_MS:
+				return BoundCastInfo(CastToNaive<timestamp_tz_ns_t, timestamp_ms_t>, std::move(cast_data));
 			case LogicalType::TIMESTAMP_NS:
 				return BoundCastInfo(CastToNaive<timestamp_tz_ns_t, timestamp_ns_t>, std::move(cast_data));
+			case LogicalType::TIMESTAMP_S:
+				return BoundCastInfo(CastToNaive<timestamp_tz_ns_t, timestamp_sec_t>, std::move(cast_data));
 			default:
 				throw InternalException("Type %s not handled in BindCastToNaive", LogicalTypeIdToString(target.id()));
 			}
@@ -449,7 +457,9 @@ struct ICUToNaiveTimestamp : public ICUDateFunc {
 		AddCast(casts, LogicalType::TIMESTAMP_TZ, LogicalType::TIMESTAMP_S);
 
 		AddCast(casts, LogicalType::TIMESTAMP_TZ_NS, LogicalType::TIMESTAMP);
+		AddCast(casts, LogicalType::TIMESTAMP_TZ_NS, LogicalType::TIMESTAMP_MS);
 		AddCast(casts, LogicalType::TIMESTAMP_TZ_NS, LogicalType::TIMESTAMP_NS);
+		AddCast(casts, LogicalType::TIMESTAMP_TZ_NS, LogicalType::TIMESTAMP_S);
 	}
 };
 
