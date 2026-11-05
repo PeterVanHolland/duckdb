@@ -145,7 +145,7 @@ Value ParquetStatisticsUtils::ConvertValueInternal(const LogicalType &type, cons
 		if (stats.size() != sizeof(bool)) {
 			throw InvalidInputException("Incorrect stats size for type BOOLEAN");
 		}
-		return Value::BOOLEAN(Load<bool>(stats_data));
+		return Value::BOOLEAN(Load<uint8_t>(stats_data) != 0);
 	}
 	case LogicalTypeId::UTINYINT:
 	case LogicalTypeId::USMALLINT:
@@ -392,7 +392,7 @@ static void ConvertUnshreddedStats(BaseStatistics &result, optional_ptr<BaseStat
 		return;
 	}
 	auto &input = *input_p;
-	D_ASSERT(input.GetType().id() == LogicalTypeId::BLOB);
+	D_ASSERT(input.GetType().id() == LogicalTypeId::BLOB || input.GetType().id() == LogicalTypeId::VARCHAR);
 	result.CopyValidity(input);
 
 	if (!result.CanHaveNoNull()) {
@@ -492,6 +492,15 @@ unique_ptr<BaseStatistics>
 ParquetStatisticsUtils::TransformParquetStatistics(const LogicalType &type, const ParquetColumnSchema &schema,
                                                    const duckdb_parquet::Statistics &parquet_stats, bool can_have_nan,
                                                    optional_ptr<const ColumnChunk> column_chunk) {
+	// INT96 has no defined sort order: a column is only ordered chronologically when the file declares
+	// INT96_TIMESTAMP_ORDER for it. Under the default TYPE_ORDER the statistics bound the values by byte comparison,
+	// which is a different order, so pruning on them silently drops rows - the specification requires readers to
+	// ignore all statistics of such a column, whether it declares TYPE_ORDER or no column order at all.
+	// See test/sql/copy/parquet/int96_invalid_stats.test
+	if (schema.parquet_type == Type::INT96) {
+		auto unknown_stats = BaseStatistics::CreateUnknown(type);
+		return unknown_stats.ToUnique();
+	}
 	switch (type.id()) {
 	case LogicalTypeId::BOOLEAN:
 	case LogicalTypeId::UTINYINT:
@@ -547,6 +556,10 @@ ParquetStatisticsUtils::TransformParquetStatistics(const LogicalType &type, cons
 		    max_stats_type == StringStatsType::EXACT_STATS && min_stats == max_stats) {
 			auto constant_stats = StringStats::CreateEmpty(type);
 			StringStats::FromConstant(constant_stats, string_t(min_stats));
+			// min/max statistics do not tell us whether the chunk also contains NULL values. CreateEmpty
+			// leaves the validity mask as "no rows at all", which lets an IS NULL filter prune pages that
+			// do contain nulls. Keep the validity unknown here; callers that know the null count refine it.
+			constant_stats.Set(StatsInfo::CAN_HAVE_NULL_AND_VALID_VALUES);
 			return constant_stats.ToUnique();
 		}
 		auto string_stats = StringStats::CreateUnknown(type);
@@ -600,7 +613,9 @@ ParquetStatisticsUtils::TransformParquetStatistics(const LogicalType &type, cons
 				if (!types.empty()) {
 					stats_types.Clear();
 					for (auto &geom_type : types) {
-						stats_types.AddWKBType(geom_type);
+						if (!stats_types.TryAddWKBType(geom_type)) {
+							throw DataCorruptionException("Invalid geometry type in Parquet file");
+						}
 					}
 				}
 			}
@@ -892,10 +907,6 @@ static optional<uint64_t> TryHashTimestamp(const Value &constant, const ParquetC
 	}
 }
 
-static uint64_t HashNormalizedInterval(const Value &constant) {
-	return ParquetIntervalUtils::HashNormalized(constant.GetValue<interval_t>());
-}
-
 // TODO we can only this if the parquet representation of the type exactly matches the duckdb rep!
 // TODO TEST THIS!
 // TODO perhaps we can re-use some writer infra here
@@ -915,9 +926,18 @@ static optional<uint64_t> ValueXXH64(const Value &constant, const ParquetColumnS
 	case LogicalTypeId::TIMESTAMP:
 	case LogicalTypeId::TIMESTAMP_TZ:
 		return TryHashTimestamp(constant, schema);
-	case LogicalTypeId::INTERVAL:
-		return UsesNormalizedIntervalHash(hash_strategy) ? optional<uint64_t>(HashNormalizedInterval(constant))
-		                                                 : nullopt;
+	case LogicalTypeId::INTERVAL: {
+		if (!UsesNormalizedIntervalHash(hash_strategy)) {
+			return nullopt;
+		}
+		const auto interval = constant.GetValue<interval_t>();
+		// files of different versions hash an interval whose normalization saturates and keeps whole days in its
+		// microseconds differently, so a filter on one cannot rely on the bloom filter
+		if (interval.Normalize().micros >= Interval::MICROS_PER_DAY) {
+			return nullopt;
+		}
+		return ParquetIntervalUtils::TryHashNormalized(interval);
+	}
 	case LogicalTypeId::DECIMAL:
 		if (schema.parquet_type == duckdb_parquet::Type::INT32) {
 			return ValueXH64FixedWidth<int32_t>(constant);
