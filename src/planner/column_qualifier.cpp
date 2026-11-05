@@ -263,7 +263,7 @@ optional_ptr<CatalogEntry> ColumnQualifier::QualifyFunction(FunctionExpression &
 	QueryErrorContext error_context(function.GetQueryLocation());
 	// promote a lone qualifier that names an attached database to a catalog, so that "db.f()" is not mistaken for a
 	// dot-call on a column named "db" by the rewrite below
-	binder.BindSchemaOrCatalog(function.GetQualifiedNameMutable());
+	Binder::BindSchemaOrCatalog(binder.EntryRetriever(), function.GetQualifiedNameMutable());
 
 	EntryLookupInfo function_lookup(CatalogType::SCALAR_FUNCTION_ENTRY, QualifiedName(function.FunctionName()),
 	                                error_context);
