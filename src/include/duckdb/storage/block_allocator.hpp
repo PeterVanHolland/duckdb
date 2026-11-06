@@ -55,6 +55,8 @@ public:
 
 	//! Free backing retained in global queues, thread-local caches, and ongoing reclamation.
 	idx_t GetCachedMemory() const;
+	//! Let the allocation cache keep one exact size besides the powers of two, the first registered size wins
+	bool RegisterCachedSize(idx_t size) const;
 
 	//! Flush outstanding allocations
 	bool SupportsFlush() const;

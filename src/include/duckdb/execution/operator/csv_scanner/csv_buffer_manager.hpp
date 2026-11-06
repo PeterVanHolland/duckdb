@@ -56,6 +56,8 @@ public:
 	bool HasKnownBufferRanges() const;
 	//! For files with known buffer ranges, the number of buffers in the file
 	idx_t KnownBufferCount() const;
+	//! Gives the default buffer allocation a size class of the allocation cache
+	static void RegisterDefaultBufferAllocation(ClientContext &context, idx_t buffer_size);
 	//! For files with known buffer range, the actual size of a given buffer
 	idx_t KnownBufferSize(const idx_t buffer_idx) const;
 
