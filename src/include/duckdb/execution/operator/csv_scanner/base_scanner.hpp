@@ -86,6 +86,34 @@ public:
 		return states.states[1] == state;
 	}
 
+	//! Results that materialize values override these, so the block scan skips the values nobody asked for
+	template <class T>
+	static inline bool CanSkipValue(const T &result) {
+		return false;
+	}
+	template <class T>
+	static inline void SkipValue(T &result, const idx_t buffer_pos) {
+	}
+	template <class T>
+	static inline bool AddRowWithoutValue(T &result, const idx_t buffer_pos) {
+		return false;
+	}
+	template <class T>
+	static inline idx_t SkippableRun(const T &result, const idx_t buffer_pos) {
+		return 0;
+	}
+	template <class T>
+	static inline void SkipValues(T &result, const idx_t count, const idx_t buffer_pos) {
+	}
+	//! Whether a value of this result may skip its UTF-8 check, so the block scan tracks ASCII blocks
+	template <class T>
+	static inline bool TracksAscii(const T &result) {
+		return false;
+	}
+
+	//! Set by the block scan while it adds a value whose bytes all lie in blocks without high bits, so the value
+	//! needs no UTF-8 validation
+	bool ascii_value = false;
 	//! Variable to keep information regarding quoted and escaped values
 	bool quoted = false;
 	//! If the current quoted value is unquoted
@@ -207,16 +235,328 @@ protected:
 	//! Skips the content bytes of the current buffer, mutable because the line finder is const
 	mutable CSVByteSkipper skipper;
 
+	//! Whether ProcessBlocks may drive this state machine, and the bytes it stops at
+	const bool block_scan;
+	const uint8_t block_delimiter;
+	const uint8_t block_quote;
+	const bool block_crlf;
+	const bool block_escape_is_quote;
+
+	//! Whether the state machine can hand the current byte to ProcessBlocks
+	template <class T>
+	bool BlockScanPossible(const T &result) const {
+		if (result.quoted || result.escaped || result.comment) {
+			return false;
+		}
+		switch (states.states[1]) {
+		case CSVState::STANDARD:
+		case CSVState::DELIMITER:
+		case CSVState::RECORD_SEPARATOR:
+		case CSVState::EMPTY_SPACE:
+		case CSVState::NOT_SET:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	static bool IsSeparatorState(const CSVState state) {
+		return state == CSVState::DELIMITER || state == CSVState::RECORD_SEPARATOR ||
+		       state == CSVState::CARRIAGE_RETURN || state == CSVState::NOT_SET;
+	}
+
+	//! The state after the data bytes [from, to) given the state `before` them, as the eligible tables have it
+	CSVState StateAfterData(const CSVState before, const idx_t from, const idx_t to) const {
+		if (from == to) {
+			return before;
+		}
+		if (to - from == 1 && buffer_handle_ptr[from] == ' ' && IsSeparatorState(before)) {
+			return CSVState::EMPTY_SPACE;
+		}
+		return CSVState::STANDARD;
+	}
+
+	//! Moves `states` from the pair before byte `last` to the pair before byte `at`, over data bytes
+	void SetStatesBefore(const idx_t at, const idx_t last) {
+		const auto before = states.states[1];
+		const auto previous = at == last ? states.states[0] : StateAfterData(before, last, at - 1);
+		D_ASSERT(ReplayStates(last, at).states[1] == StateAfterData(before, last, at));
+		D_ASSERT(ReplayStates(last, at).states[0] == previous);
+		states.states[1] = StateAfterData(before, last, at);
+		states.states[0] = previous;
+	}
+
+	//! The pair the state machine reaches from `states` over the bytes [from, to), for the block scan assertions
+	CSVStates ReplayStates(const idx_t from, const idx_t to) const {
+		CSVStates replay = states;
+		for (idx_t i = from; i < to; i++) {
+			state_machine->Transition(replay, buffer_handle_ptr[i]);
+		}
+		return replay;
+	}
+
+	//! Moves `states` from the pair before byte `last` to the pair before byte `at`, over quoted data bytes
+	void SetQuotedStatesBefore(const idx_t at, const idx_t last) {
+		const auto previous = at == last ? states.states[0] : at == last + 1 ? states.states[1] : CSVState::QUOTED;
+		D_ASSERT(ReplayStates(last, at).states[0] == previous);
+		D_ASSERT(ReplayStates(last, at).states[1] == (at == last ? states.states[1] : CSVState::QUOTED));
+		states.states[1] = at == last ? states.states[1] : CSVState::QUOTED;
+		states.states[0] = previous;
+	}
+
+	//! Leaves the block scan inside a quoted value at `at`
+	bool HandOverQuoted(const idx_t at, const idx_t last) {
+		SetQuotedStatesBefore(at, last);
+		iterator.pos.buffer_pos = at;
+		return false;
+	}
+
+	//! The bytes that end a row at `at`, 2 for a CRLF pair that fits before `limit`, 1 for a line feed, else 0
+	idx_t RowEndBytes(const uint8_t byte, const idx_t at, const idx_t limit) const {
+		if (block_crlf) {
+			return byte == '\r' && at + 1 < limit && buffer_handle_ptr[at + 1] == '\n' ? 2 : 0;
+		}
+		return byte == '\n' ? 1 : 0;
+	}
+
+	//! The delimiter at `at`, `before` is the state before it, `ascii` whether the value lies in ASCII blocks
+	template <class T>
+	void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii) {
+		states.states[0] = before;
+		states.states[1] = CSVState::DELIMITER;
+		iterator.pos.buffer_pos = at;
+		if (T::CanSkipValue(result)) {
+			T::SkipValue(result, at);
+		} else {
+			result.ascii_value = ascii;
+			T::AddValue(result, at);
+			result.ascii_value = false;
+		}
+	}
+
+	//! Consumes the delimiter at `at` and those of the unprojected columns that follow in the block, `run` at most,
+	//! with one bookkeeping call, `last` is the first byte after the previous structural byte. Returns the first byte
+	//! after the last consumed delimiter
+	template <class T>
+	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t last,
+	                        uint64_t &candidates, const idx_t pos, const idx_t limit) {
+		idx_t last_delimiter = at;
+		CSVState before_last = before;
+		idx_t consumed = 1;
+		while (consumed < run && candidates) {
+			const idx_t next = pos + CountZeros<uint64_t>::Trailing(candidates);
+			if (next >= limit) {
+				break;
+			}
+			const auto byte = static_cast<uint8_t>(buffer_handle_ptr[next]);
+			if (byte != block_delimiter) {
+				if (byte == '\n' || byte == '\r' || byte == block_quote) {
+					break;
+				}
+				// a false candidate of the mask, data
+				candidates &= candidates - 1;
+				continue;
+			}
+			candidates &= candidates - 1;
+			before_last = StateAfterData(CSVState::DELIMITER, last_delimiter + 1, next);
+			last_delimiter = next;
+			consumed++;
+		}
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[1] == CSVState::DELIMITER);
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[0] == before_last);
+		states.states[0] = before_last;
+		states.states[1] = CSVState::DELIMITER;
+		iterator.pos.buffer_pos = last_delimiter;
+		T::SkipValues(result, consumed, last_delimiter);
+		return last_delimiter + 1;
+	}
+
+	//! The row end at `at`, `before` is the state before it, `ascii` whether the last value lies in ASCII blocks.
+	//! Returns true when the result is full
+	template <class T>
+	bool BlockRowEnd(T &result, const idx_t at, const CSVState before, const bool crlf, uint64_t &candidates,
+	                 const idx_t pos, const bool ascii) {
+		states.states[0] = before;
+		states.states[1] = crlf ? CSVState::CARRIAGE_RETURN : CSVState::RECORD_SEPARATOR;
+		iterator.pos.buffer_pos = at;
+		bool full;
+		if (T::CanSkipValue(result)) {
+			full = T::AddRowWithoutValue(result, at);
+		} else {
+			result.ascii_value = ascii;
+			full = T::AddRow(result, at);
+			result.ascii_value = false;
+		}
+		lines_read++;
+		if (full) {
+			iterator.pos.buffer_pos = at + 1;
+			return true;
+		}
+		if (crlf) {
+			states.states[0] = CSVState::CARRIAGE_RETURN;
+			states.states[1] = CSVState::RECORD_SEPARATOR;
+			candidates &= ~(uint64_t(1) << (at + 1 - pos));
+		}
+		return false;
+	}
+
+	//! Scans unquoted fields and quoted values in their canonical form, and preserves the states when handing back
+	//! to Process. Returns true when the result is full. Repeated SetQuoted calls may be skipped because the setter
+	//! is idempotent.
+	template <class T>
+	bool ProcessBlocks(T &result, const idx_t to_pos) {
+		const auto buffer = buffer_handle_ptr;
+		// the first byte not consumed, and the first byte after the last structural or special byte
+		idx_t pos = iterator.pos.buffer_pos;
+		idx_t last = pos;
+		bool quoted = false;
+		// whether every block that holds a byte of the current value is ASCII, tracked only when a value can skip
+		// its UTF-8 check, a value that began before the block scan is validated as every other value of the byte loop
+		const bool track_ascii = T::TracksAscii(result);
+		bool value_ascii = track_ascii && IsSeparatorState(states.states[1]);
+		bool block_ascii = false;
+		uint64_t candidates;
+		idx_t block_end;
+		while (pos < to_pos && skipper.BlockCandidates(pos, candidates, block_end)) {
+			const idx_t limit = MinValue<idx_t>(block_end, to_pos);
+			block_ascii =
+			    track_ascii && !SwarBlock::HasHighBits(const_data_ptr_cast(buffer + block_end - SwarBlock::SIZE));
+			value_ascii = value_ascii && block_ascii;
+			while (candidates) {
+				const idx_t at = pos + CountZeros<uint64_t>::Trailing(candidates);
+				if (at >= limit) {
+					break;
+				}
+				candidates &= candidates - 1;
+				const auto byte = static_cast<uint8_t>(buffer[at]);
+				if (quoted) {
+					if (byte == '\n' || byte == '\r') {
+						// QUOTED and QUOTED_NEW_LINE alternate on newline bytes inside the quotes
+						SetQuotedStatesBefore(at, last);
+						const bool new_line_state = states.states[1] == CSVState::QUOTED;
+						states.states[0] = states.states[1];
+						states.states[1] = new_line_state ? CSVState::QUOTED_NEW_LINE : CSVState::QUOTED;
+						iterator.pos.buffer_pos = at;
+						if (new_line_state) {
+							T::QuotedNewLine(result);
+						} else {
+							ever_quoted = true;
+							T::SetQuoted(result, at);
+						}
+						last = at + 1;
+						continue;
+					}
+					if (byte != block_quote) {
+						continue;
+					}
+					if (at + 1 >= limit) {
+						return HandOverQuoted(at, last);
+					}
+					const auto next = static_cast<uint8_t>(buffer[at + 1]);
+					const bool escape_pair = block_escape_is_quote && next == block_quote;
+					const idx_t row_end_bytes = RowEndBytes(next, at + 1, limit);
+					if (!escape_pair && next != block_delimiter && row_end_bytes == 0) {
+						return HandOverQuoted(at, last);
+					}
+					SetQuotedStatesBefore(at, last);
+					states.states[0] = states.states[1];
+					states.states[1] = CSVState::UNQUOTED;
+					iterator.pos.buffer_pos = at;
+					T::SetUnquoted(result);
+					candidates &= ~(uint64_t(1) << (at + 1 - pos));
+					if (escape_pair) {
+						states.states[0] = CSVState::UNQUOTED;
+						states.states[1] = CSVState::QUOTED;
+						iterator.pos.buffer_pos = at + 1;
+						ever_escaped = true;
+						T::SetEscaped(result);
+						ever_quoted = true;
+						T::SetQuoted(result, at + 1);
+						last = at + 2;
+						continue;
+					}
+					quoted = false;
+					if (next == block_delimiter) {
+						BlockDelimiter(result, at + 1, CSVState::UNQUOTED, value_ascii);
+						value_ascii = block_ascii;
+						last = at + 2;
+						continue;
+					}
+					if (BlockRowEnd(result, at + 1, CSVState::UNQUOTED, row_end_bytes == 2, candidates, pos,
+					                value_ascii)) {
+						return true;
+					}
+					value_ascii = block_ascii;
+					last = at + 1 + row_end_bytes;
+					continue;
+				}
+				const auto before = StateAfterData(states.states[1], last, at);
+				if (byte == block_delimiter) {
+					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::DELIMITER);
+					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
+					const idx_t run = T::SkippableRun(result, at);
+					if (run > 0) {
+						last = BlockDelimiterRun(result, at, before, run, last, candidates, pos, limit);
+					} else {
+						BlockDelimiter(result, at, before, value_ascii);
+						last = at + 1;
+					}
+					value_ascii = block_ascii;
+					continue;
+				}
+				if (block_quote != '\0' && byte == block_quote) {
+					if (before == CSVState::STANDARD) {
+						// a quote inside an unquoted value is data
+						continue;
+					}
+					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::QUOTED);
+					states.states[0] = before;
+					states.states[1] = CSVState::QUOTED;
+					iterator.pos.buffer_pos = at;
+					ever_quoted = true;
+					T::SetQuoted(result, at);
+					quoted = true;
+					last = at + 1;
+					continue;
+				}
+				const idx_t row_end_bytes = RowEndBytes(byte, at, limit);
+				if (row_end_bytes == 0) {
+					if (byte == '\n' || byte == '\r') {
+						return HandOver(at, last);
+					}
+					// a false candidate of the mask, data
+					continue;
+				}
+				if (before == CSVState::RECORD_SEPARATOR || before == CSVState::NOT_SET) {
+					// an empty line
+					return HandOver(at, last);
+				}
+				D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
+				D_ASSERT(ReplayStates(last, at + 1).states[1] ==
+				         (row_end_bytes == 2 ? CSVState::CARRIAGE_RETURN : CSVState::RECORD_SEPARATOR));
+				if (BlockRowEnd(result, at, before, row_end_bytes == 2, candidates, pos, value_ascii)) {
+					return true;
+				}
+				value_ascii = block_ascii;
+				last = at + row_end_bytes;
+			}
+			pos = limit;
+		}
+		return quoted ? HandOverQuoted(pos, last) : HandOver(pos, last);
+	}
+
+	//! Leaves the block scan at `at`, with the states before it
+	bool HandOver(const idx_t at, const idx_t last) {
+		SetStatesBefore(at, last);
+		iterator.pos.buffer_pos = at;
+		return false;
+	}
+
 	//! Process one chunk
 	template <class T>
 	void Process(T &result) {
 		idx_t to_pos;
 		const bool has_escaped_value = state_machine->dialect_options.state_machine_options.escape != '\0';
-		const bool only_rn_newlines =
-		    state_machine->state_machine_options.strict_mode.GetValue() &&
-		    state_machine->state_machine_options.strict_mode.IsSetByUser() &&
-		    state_machine->state_machine_options.new_line.GetValue() == NewLineIdentifier::CARRY_ON &&
-		    state_machine->state_machine_options.new_line.IsSetByUser();
 		const idx_t start_pos = iterator.pos.buffer_pos;
 		if (iterator.IsBoundarySet()) {
 			to_pos = iterator.GetEndPos();
@@ -228,6 +568,15 @@ protected:
 		}
 		skipper.SetBuffer(*cur_buffer_handle);
 		while (iterator.pos.buffer_pos < to_pos) {
+			if (T::BLOCK_SCAN && block_scan && BlockScanPossible(result)) {
+				if (ProcessBlocks(result, to_pos)) {
+					bytes_read = iterator.pos.buffer_pos - start_pos;
+					return;
+				}
+				if (iterator.pos.buffer_pos >= to_pos) {
+					break;
+				}
+			}
 			state_machine->Transition(states, buffer_handle_ptr[iterator.pos.buffer_pos]);
 			switch (states.states[1]) {
 			case CSVState::INVALID:
@@ -281,7 +630,7 @@ protected:
 							lines_read++;
 							return;
 						}
-					} else if (!only_rn_newlines) {
+					} else {
 						if (T::AddRow(result, iterator.pos.buffer_pos)) {
 							iterator.pos.buffer_pos++;
 							bytes_read = iterator.pos.buffer_pos - start_pos;
