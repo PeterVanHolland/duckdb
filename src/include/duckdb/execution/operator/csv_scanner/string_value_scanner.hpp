@@ -238,6 +238,8 @@ public:
 	//! Information regarding projected columns
 	unsafe_unique_array<bool> projected_columns;
 	bool projecting_columns = false;
+	//! Per column, how many columns from it on are not projected, 0 for a projected column
+	unsafe_unique_array<idx_t> unprojected_run;
 	idx_t chunk_col_id = 0;
 
 	bool icu_loaded = false;
@@ -282,6 +284,16 @@ public:
 	}
 	static inline void SkipValue(StringValueResult &result, const idx_t buffer_pos);
 	static inline bool AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos);
+	//! The unprojected columns from the current one on, 0 when the value ending at buffer_pos has to be read
+	static inline idx_t SkippableRun(const StringValueResult &result, const idx_t buffer_pos) {
+		if (!result.projecting_columns || result.cur_col_id >= result.number_of_columns ||
+		    result.last_position.buffer_pos > buffer_pos) {
+			return 0;
+		}
+		return result.unprojected_run[result.cur_col_id];
+	}
+	//! The bookkeeping of `count` unprojected values, the last one ending at the delimiter at buffer_pos
+	static inline void SkipValues(StringValueResult &result, const idx_t count, const idx_t buffer_pos);
 	//! Behavior when hitting an invalid state
 	static inline void InvalidState(StringValueResult &result);
 	//! Handles QuotedNewline State
@@ -295,7 +307,7 @@ public:
 	//! Moves last_position past the newline that ends the row at buffer_pos
 	inline void SetLastPositionAfterNewline(idx_t buffer_pos);
 	//! Keeps the position of the current row for the error messages of Flush
-	inline void StoreLinePosition();
+	inline void StoreLinePosition(const LinePosition &begin, const LinePosition &end);
 	//! Marks the columns of a borked row that were never written as NULL
 	void InvalidateUnwrittenColumns(idx_t first_unwritten_col);
 	//! Force the throw of a Unicode error

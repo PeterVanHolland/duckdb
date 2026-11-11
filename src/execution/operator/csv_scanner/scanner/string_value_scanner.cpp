@@ -98,6 +98,12 @@ StringValueResult::StringValueResult(CSVStates &states, CSVStateMachine &state_m
 					projected_columns[col_idx] = true;
 				}
 			}
+			unprojected_run = make_unsafe_uniq_array<idx_t>(number_of_columns);
+			idx_t run = 0;
+			for (idx_t col_idx = number_of_columns; col_idx > 0; col_idx--) {
+				run = projected_columns[col_idx - 1] ? 0 : run + 1;
+				unprojected_run[col_idx - 1] = run;
+			}
 		}
 		if (!projecting_columns) {
 			for (idx_t j = logical_types.size(); j < number_of_columns; j++) {
@@ -699,6 +705,14 @@ void StringValueResult::SkipValue(StringValueResult &result, const idx_t buffer_
 	result.last_position.buffer_pos = buffer_pos + 1;
 }
 
+void StringValueResult::SkipValues(StringValueResult &result, const idx_t count, const idx_t buffer_pos) {
+	D_ASSERT(count > 0 && result.last_position.buffer_pos <= buffer_pos);
+	// the first value may close a quoted value, the ones after it are plain
+	result.SkipValueInternal();
+	result.cur_col_id += count - 1;
+	result.last_position.buffer_pos = buffer_pos + 1;
+}
+
 void StringValueResult::HandleUnicodeError(idx_t col_idx, LinePosition &error_position) {
 	bool first_nl = false;
 	auto borked_line = current_line_position.ReconstructCurrentLine(first_nl, buffer_handles, PrintErrorLine());
@@ -873,17 +887,21 @@ void StringValueResult::InvalidateUnwrittenColumns(idx_t first_unwritten_col) {
 	}
 }
 
-void StringValueResult::StoreLinePosition() {
+void StringValueResult::StoreLinePosition(const LinePosition &begin, const LinePosition &end) {
 	// a removed row leaves number_of_rows at -1, nothing reads a position for it
 	if (number_of_rows >= 0) {
-		line_positions_per_row[static_cast<idx_t>(number_of_rows)] = current_line_position;
+		// from the caller's values, a copy of current_line_position right after its fields were stored stalls on them
+		auto &row_position = line_positions_per_row[static_cast<idx_t>(number_of_rows)];
+		row_position.begin = begin;
+		row_position.end = end;
 	}
 }
 
 bool StringValueResult::AddRowInternal() {
-	LinePosition current_line_start = {iterator.pos.buffer_idx, iterator.pos.buffer_pos, buffer_size};
-	idx_t current_line_size = current_line_start - current_line_position.end;
-	current_line_position.begin = current_line_position.end;
+	const LinePosition current_line_start = {iterator.pos.buffer_idx, iterator.pos.buffer_pos, buffer_size};
+	const LinePosition current_line_begin = current_line_position.end;
+	idx_t current_line_size = current_line_start - current_line_begin;
+	current_line_position.begin = current_line_begin;
 	current_line_position.end = current_line_start;
 	if (current_line_size > state_machine.options.maximum_line_size.GetValue()) {
 		current_errors.Insert(MAXIMUM_LINE_SIZE, 1, chunk_col_id, last_position, current_line_size);
@@ -900,7 +918,7 @@ bool StringValueResult::AddRowInternal() {
 
 		D_ASSERT(buffer_handles.find(current_line_position.begin.buffer_idx) != buffer_handles.end());
 		D_ASSERT(buffer_handles.find(current_line_position.end.buffer_idx) != buffer_handles.end());
-		StoreLinePosition();
+		StoreLinePosition(current_line_begin, current_line_start);
 		number_of_rows++;
 		if (static_cast<idx_t>(number_of_rows) >= result_size) {
 			// We have a full chunk
@@ -961,7 +979,7 @@ bool StringValueResult::AddRowInternal() {
 	}
 	D_ASSERT(buffer_handles.find(current_line_position.begin.buffer_idx) != buffer_handles.end());
 	D_ASSERT(buffer_handles.find(current_line_position.end.buffer_idx) != buffer_handles.end());
-	StoreLinePosition();
+	StoreLinePosition(current_line_begin, current_line_start);
 	cur_col_id = 0;
 	chunk_col_id = 0;
 	number_of_rows++;
