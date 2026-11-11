@@ -106,6 +106,10 @@ public:
 		return false;
 	}
 	template <class T>
+	static inline bool SkipsRuns(const T &result) {
+		return false;
+	}
+	template <class T>
 	static inline idx_t SkippableRun(const T &result, const idx_t buffer_pos) {
 		return 0;
 	}
@@ -467,8 +471,9 @@ protected:
 
 	//! Scans unquoted fields and quoted values in their canonical form, and preserves the states when handing back
 	//! to Process. Returns true when the result is full. Repeated SetQuoted calls may be skipped because the setter
-	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, so dialects without them pay nothing for them
-	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT>
+	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, so dialects without them pay nothing for them;
+	//! SKIP_RUNS is set for scans with unprojected columns, so scans reading every column keep the plain delimiter path
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool SKIP_RUNS>
 	DUCKDB_BLOCK_SCAN_ALIGNED bool ProcessBlocks(T &result, const idx_t to_pos) {
 		const auto buffer = buffer_handle_ptr;
 		// the first byte not consumed, and the first byte after the last structural or special byte
@@ -583,7 +588,7 @@ protected:
 						D_ASSERT(ReplayStates(last, at + delimiter_bytes).states[1] == CSVState::DELIMITER);
 						D_ASSERT(ReplayStates(last, at + delimiter_bytes).states[0] == DelimiterPenultimateState());
 						ClearCandidates(candidates, pos, at + 1, at + delimiter_bytes);
-						const idx_t run = T::SkippableRun(result, at + delimiter_bytes - 1);
+						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
 						if (run > 0) {
 							last = BlockDelimiterRun<T, true, COMMENT>(result, at + delimiter_bytes - 1,
 							                                           DelimiterPenultimateState(), run, last,
@@ -596,7 +601,7 @@ protected:
 					}
 					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::DELIMITER);
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
-					const idx_t run = T::SkippableRun(result, at);
+					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
 					if (run > 0) {
 						last =
 						    BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, last, candidates, pos, limit);
@@ -668,6 +673,17 @@ protected:
 		return false;
 	}
 
+	//! The block scan of the dialect, with or without the skipping of unprojected column runs
+	template <class T, bool SKIP_RUNS>
+	bool ProcessBlocksOfDialect(T &result, const idx_t to_pos) {
+		if (block_comment != '\0') {
+			return block_multi_byte_delimiter ? ProcessBlocks<T, true, true, SKIP_RUNS>(result, to_pos)
+			                                  : ProcessBlocks<T, false, true, SKIP_RUNS>(result, to_pos);
+		}
+		return block_multi_byte_delimiter ? ProcessBlocks<T, true, false, SKIP_RUNS>(result, to_pos)
+		                                  : ProcessBlocks<T, false, false, SKIP_RUNS>(result, to_pos);
+	}
+
 	//! Process one chunk
 	template <class T>
 	void Process(T &result) {
@@ -685,11 +701,8 @@ protected:
 		skipper.SetBuffer(*cur_buffer_handle);
 		while (iterator.pos.buffer_pos < to_pos) {
 			if (T::BLOCK_SCAN && block_scan && BlockScanPossible(result)) {
-				const bool full = block_comment != '\0'
-				                      ? (block_multi_byte_delimiter ? ProcessBlocks<T, true, true>(result, to_pos)
-				                                                    : ProcessBlocks<T, false, true>(result, to_pos))
-				                      : (block_multi_byte_delimiter ? ProcessBlocks<T, true, false>(result, to_pos)
-				                                                    : ProcessBlocks<T, false, false>(result, to_pos));
+				const bool full = T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, true>(result, to_pos)
+				                                       : ProcessBlocksOfDialect<T, false>(result, to_pos);
 				if (full) {
 					bytes_read = iterator.pos.buffer_pos - start_pos;
 					return;

@@ -887,21 +887,17 @@ void StringValueResult::InvalidateUnwrittenColumns(idx_t first_unwritten_col) {
 	}
 }
 
-void StringValueResult::StoreLinePosition(const LinePosition &begin, const LinePosition &end) {
+void StringValueResult::StoreLinePosition() {
 	// a removed row leaves number_of_rows at -1, nothing reads a position for it
 	if (number_of_rows >= 0) {
-		// from the caller's values, a copy of current_line_position right after its fields were stored stalls on them
-		auto &row_position = line_positions_per_row[static_cast<idx_t>(number_of_rows)];
-		row_position.begin = begin;
-		row_position.end = end;
+		line_positions_per_row[static_cast<idx_t>(number_of_rows)] = current_line_position;
 	}
 }
 
 bool StringValueResult::AddRowInternal() {
-	const LinePosition current_line_start = {iterator.pos.buffer_idx, iterator.pos.buffer_pos, buffer_size};
-	const LinePosition current_line_begin = current_line_position.end;
-	idx_t current_line_size = current_line_start - current_line_begin;
-	current_line_position.begin = current_line_begin;
+	LinePosition current_line_start = {iterator.pos.buffer_idx, iterator.pos.buffer_pos, buffer_size};
+	idx_t current_line_size = current_line_start - current_line_position.end;
+	current_line_position.begin = current_line_position.end;
 	current_line_position.end = current_line_start;
 	if (current_line_size > state_machine.options.maximum_line_size.GetValue()) {
 		current_errors.Insert(MAXIMUM_LINE_SIZE, 1, chunk_col_id, last_position, current_line_size);
@@ -918,7 +914,7 @@ bool StringValueResult::AddRowInternal() {
 
 		D_ASSERT(buffer_handles.find(current_line_position.begin.buffer_idx) != buffer_handles.end());
 		D_ASSERT(buffer_handles.find(current_line_position.end.buffer_idx) != buffer_handles.end());
-		StoreLinePosition(current_line_begin, current_line_start);
+		StoreLinePosition();
 		number_of_rows++;
 		if (static_cast<idx_t>(number_of_rows) >= result_size) {
 			// We have a full chunk
@@ -979,7 +975,7 @@ bool StringValueResult::AddRowInternal() {
 	}
 	D_ASSERT(buffer_handles.find(current_line_position.begin.buffer_idx) != buffer_handles.end());
 	D_ASSERT(buffer_handles.find(current_line_position.end.buffer_idx) != buffer_handles.end());
-	StoreLinePosition(current_line_begin, current_line_start);
+	StoreLinePosition();
 	cur_col_id = 0;
 	chunk_col_id = 0;
 	number_of_rows++;

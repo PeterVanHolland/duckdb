@@ -284,6 +284,10 @@ public:
 	}
 	static inline void SkipValue(StringValueResult &result, const idx_t buffer_pos);
 	static inline bool AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos);
+	//! Whether the scan has unprojected columns, so the block scan skips their runs
+	static inline bool SkipsRuns(const StringValueResult &result) {
+		return result.projecting_columns;
+	}
 	//! The unprojected columns from the current one on, 0 when the value ending at buffer_pos has to be read
 	static inline idx_t SkippableRun(const StringValueResult &result, const idx_t buffer_pos) {
 		if (!result.projecting_columns || result.cur_col_id >= result.number_of_columns ||
@@ -307,7 +311,7 @@ public:
 	//! Moves last_position past the newline that ends the row at buffer_pos
 	inline void SetLastPositionAfterNewline(idx_t buffer_pos);
 	//! Keeps the position of the current row for the error messages of Flush
-	inline void StoreLinePosition(const LinePosition &begin, const LinePosition &end);
+	inline void StoreLinePosition();
 	//! Marks the columns of a borked row that were never written as NULL
 	void InvalidateUnwrittenColumns(idx_t first_unwritten_col);
 	//! Force the throw of a Unicode error
