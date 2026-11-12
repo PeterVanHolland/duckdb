@@ -1,0 +1,111 @@
+# name: test/optimizer/statistics/statistics_struct_field_null.test
+# description: A filter that is true or NULL becomes a NULL check of its column only when its NULLs are those of the column
+# group: [statistics]
+
+statement ok
+CREATE TABLE structs AS
+SELECT * FROM (VALUES (1, {'y': 'a', 'i': 1, 'b': true}), (2, {'y': NULL, 'i': NULL, 'b': NULL}), (3, NULL)) t(id, s);
+
+# selecting the whole struct keeps the filter on the struct column
+query II
+SELECT id, s FROM structs WHERE s.y IN ('a', 'b');
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE s.y LIKE 'a%';
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE s.i IN (1, 2);
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE s.b;
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE struct_extract_at(s, 3);
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+query II
+SELECT id, s FROM structs WHERE s.y IN ('a', 'b') OR s.y LIKE 'a%';
+----
+1	{'y': a, 'i': 1, 'b': true}
+
+# a DELETE reads the whole struct
+query I
+DELETE FROM structs WHERE s.b;
+----
+1
+
+query I
+SELECT id FROM structs ORDER BY id;
+----
+2
+3
+
+statement ok
+CREATE TABLE flags AS
+SELECT * FROM (VALUES (1, {'b': true, 'c': true}), (2, {'b': NULL, 'c': true}), (3, {'b': true, 'c': NULL}), (4, {'b': NULL, 'c': NULL}), (5, NULL)) t(id, s);
+
+query II
+SELECT id, s FROM flags WHERE s.b OR s.c ORDER BY id;
+----
+1	{'b': true, 'c': true}
+2	{'b': NULL, 'c': true}
+3	{'b': true, 'c': NULL}
+
+# statistics of a checkpointed table with several row groups
+statement ok
+ATTACH '{TEST_DIR}/statistics_struct_field_null.db' AS disk;
+
+statement ok
+CREATE TABLE disk.big AS SELECT i AS id, {'flag': CASE WHEN i % 10 = 0 THEN NULL ELSE true END} AS s FROM range(300000) r(i);
+
+statement ok
+CHECKPOINT disk;
+
+query I
+DELETE FROM disk.big WHERE s.flag;
+----
+270000
+
+query I
+SELECT count(*) FROM disk.big;
+----
+30000
+
+statement ok
+CREATE TABLE strings AS SELECT * FROM (VALUES (1, 'a'), (2, NULL)) t(id, y);
+
+# a CASE can be NULL where the column is not
+query I
+SELECT id FROM strings WHERE (CASE WHEN id = 1 THEN 'a' END) IN ('a', 'b');
+----
+1
+
+# a CASE can be true where the column is NULL
+query I
+SELECT id FROM strings WHERE (CASE WHEN y IS NULL THEN 'a' ELSE y END) IN ('a', 'b') ORDER BY id;
+----
+1
+2
+
+query I
+SELECT id FROM strings WHERE y IN ('a', 'b');
+----
+1
+
+statement ok
+PRAGMA explain_output = OPTIMIZED_ONLY;
+
+# a filter on the column itself is still replaced with a NULL check
+query II
+EXPLAIN SELECT id FROM strings WHERE contains(y, 'a');
+----
+logical_opt	<REGEX>:.*y IS NOT NULL.*
