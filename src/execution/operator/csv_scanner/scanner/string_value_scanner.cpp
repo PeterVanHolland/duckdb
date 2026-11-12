@@ -1578,7 +1578,8 @@ void StringValueScanner::ProcessOverBufferValue() {
 		result.current_errors.Insert(UNTERMINATED_QUOTES, result.cur_col_id, result.chunk_col_id, result.last_position);
 	}
 	bool skip_value = false;
-	if (result.projecting_columns) {
+	// a comment has no value to skip, like it has none to add below
+	if (result.projecting_columns && (!result.comment || !over_buffer_string.empty())) {
 		if (result.cur_col_id < result.number_of_columns && !result.projected_columns[result.cur_col_id]) {
 			result.cur_col_id++;
 			skip_value = true;
