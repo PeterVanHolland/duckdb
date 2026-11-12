@@ -1086,6 +1086,20 @@ bool StringValueResult::AddRow(StringValueResult &result, const idx_t buffer_pos
 	return result.AddRowInternal();
 }
 
+bool StringValueResult::AddCountedRows(StringValueResult &result, const idx_t rows, const idx_t row_end,
+                                       const idx_t after_row_end) {
+	D_ASSERT(result.only_counts_rows && rows > 0 && !result.quoted && !result.escaped && !result.comment);
+	D_ASSERT(!result.current_errors.IsErrorInLine());
+	result.number_of_rows += UnsafeNumericCast<int64_t>(rows);
+	// the rows are complete and valid: only the positions the next row or error needs are kept
+	result.current_line_position.begin = result.current_line_position.end;
+	result.current_line_position.end = {result.iterator.pos.buffer_idx, row_end, result.buffer_size};
+	result.last_position = {result.iterator.pos.buffer_idx, after_row_end, result.buffer_size};
+	result.cur_col_id = 0;
+	result.chunk_col_id = 0;
+	return static_cast<idx_t>(result.number_of_rows) >= result.result_size;
+}
+
 bool StringValueResult::AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos) {
 	if (result.last_position.buffer_pos <= buffer_pos) {
 		if (result.validate_first_column && result.cur_col_id == 0) {

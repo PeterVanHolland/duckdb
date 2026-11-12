@@ -145,6 +145,10 @@ public:
 	bool HasError() const {
 		return !current_errors.empty();
 	}
+	//! Whether the current line has an error, stored or not
+	bool IsErrorInLine() const {
+		return is_error_in_line;
+	}
 
 	idx_t Size() const {
 		return current_errors.size();
@@ -292,6 +296,15 @@ public:
 	static inline bool SkipsRuns(const StringValueResult &result) {
 		return result.projecting_columns;
 	}
+	static constexpr bool CAN_COUNT_ROWS = true;
+	//! Whether the scan reads no column, so the block scan may count the rows of plain blocks from their masks
+	static inline bool CountsRowsOnly(const StringValueResult &result) {
+		return result.only_counts_rows;
+	}
+	//! Adds `rows` complete rows counted from the masks; `row_end` is the position of the last row's end byte and
+	//! `after_row_end` the position after it. Returns true when the result is full
+	static inline bool AddCountedRows(StringValueResult &result, const idx_t rows, const idx_t row_end,
+	                                  const idx_t after_row_end);
 	//! The unprojected columns from the current one on, 0 when the value ending at buffer_pos has to be read
 	static inline idx_t SkippableRun(const StringValueResult &result, const idx_t buffer_pos) {
 		if (!result.projecting_columns || result.cur_col_id >= result.number_of_columns ||

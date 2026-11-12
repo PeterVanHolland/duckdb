@@ -49,6 +49,17 @@ struct SwarWord {
 		return static_cast<idx_t>((word * LSB) >> 56);
 	}
 
+	//! The number of set bits of a word
+	static inline idx_t CountSetBits(uint64_t word) {
+#if defined(__GNUC__) || defined(__clang__)
+		return static_cast<idx_t>(__builtin_popcountll(word));
+#else
+		word = word - ((word >> 1) & 0x5555555555555555ULL);
+		word = (word & 0x3333333333333333ULL) + ((word >> 2) & 0x3333333333333333ULL);
+		word = (word + (word >> 4)) & 0x0F0F0F0F0F0F0F0FULL;
+		return static_cast<idx_t>((word * LSB) >> 56);
+#endif
+	}
 	//! The number of flagged bytes in a mask
 	static inline idx_t CountFlagged(uint64_t mask) {
 		// every flagged byte has its high bit set, shifted down each byte is a zero or a one
@@ -105,6 +116,66 @@ struct SwarBlock {
 	//! The fewest and the most patterns MaybeAnyMask takes at once
 	static constexpr idx_t MIN_PATTERNS = 2;
 	static constexpr idx_t MAX_PATTERNS = 5;
+
+	//! The 8x8 bit transpose: bit (j * 8 + i) of the result is bit (i * 8 + j) of `x`
+	static inline uint64_t TransposeBits(uint64_t x) {
+		uint64_t t = (x ^ (x >> 7)) & 0x00AA00AA00AA00AAULL;
+		x = x ^ t ^ (t << 7);
+		t = (x ^ (x >> 14)) & 0x0000CCCC0000CCCCULL;
+		x = x ^ t ^ (t << 14);
+		t = (x ^ (x >> 28)) & 0x00000000F0F0F0F0ULL;
+		return x ^ t ^ (t << 28);
+	}
+
+	//! The bit mask of the 0x80 flags of a block of flag bytes, in byte order
+	static inline uint64_t PackFlagBytes(const uint8_t *flags) {
+		// word i contributes bit i of every byte, the transpose puts the bytes of word i at bits i * 8 to i * 8 + 7
+		uint64_t transposed = 0;
+		for (idx_t i = 0; i < WORDS; i++) {
+			auto word = Load<uint64_t>(const_data_ptr_cast(flags + i * SwarWord::SIZE));
+#if DUCKDB_IS_BIG_ENDIAN
+			word = BSwap(word);
+#endif
+			transposed |= word >> (SwarWord::SIZE - 1 - i);
+		}
+		return TransposeBits(transposed);
+	}
+
+	//! Whether a byte of the block has its high bit set or equals `a` or `b`; a byte loop, which the compiler
+	//! vectorizes
+	static inline bool HasHighBitOrBytes(const_data_ptr_t block, const uint8_t a, const uint8_t b) {
+		uint8_t any = 0;
+		for (idx_t i = 0; i < SIZE; i++) {
+			any |= static_cast<uint8_t>((block[i] & 0x80) | (block[i] == a ? 0xFF : 0) | (block[i] == b ? 0xFF : 0));
+		}
+		return any != 0;
+	}
+
+	//! The exact bit masks of the bytes of the block equal to `delimiter` and to `row_end`, and with OTHER_MASK to
+	//! `other`; byte loops, which the compiler vectorizes
+	template <bool OTHER_MASK>
+	static inline void RowCountMasks(const_data_ptr_t block, const uint8_t delimiter, const uint8_t row_end,
+	                                 const uint8_t other, uint64_t &delimiters, uint64_t &row_ends, uint64_t &others) {
+		uint8_t delimiter_flags[SIZE];
+		uint8_t row_end_flags[SIZE];
+		for (idx_t i = 0; i < SIZE; i++) {
+			delimiter_flags[i] = block[i] == delimiter ? 0x80 : 0;
+		}
+		for (idx_t i = 0; i < SIZE; i++) {
+			row_end_flags[i] = block[i] == row_end ? 0x80 : 0;
+		}
+		if (OTHER_MASK) {
+			uint8_t other_flags[SIZE];
+			for (idx_t i = 0; i < SIZE; i++) {
+				other_flags[i] = block[i] == other ? 0x80 : 0;
+			}
+			others = PackFlagBytes(other_flags);
+		} else {
+			others = 0;
+		}
+		delimiters = PackFlagBytes(delimiter_flags);
+		row_ends = PackFlagBytes(row_end_flags);
+	}
 
 	//! Mask of the bytes matching any pattern plus possibly bytes right above a match, no match is ever missed
 	static inline uint64_t MaybeAnyMask(const_data_ptr_t block, const vector<BytePattern> &patterns) {
