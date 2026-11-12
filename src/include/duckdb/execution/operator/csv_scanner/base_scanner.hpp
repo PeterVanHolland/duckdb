@@ -15,11 +15,14 @@
 #include "duckdb/common/helper.hpp"
 #include "duckdb/execution/operator/csv_scanner/csv_byte_skipper.hpp"
 
-// the block scan loop's speed depends on where its code starts within a 64 byte line, so the function is aligned
+// the block scan loop's speed depends on where its code starts within a 64 byte line, so the function is aligned; the
+// hooks it calls per structural byte are inlined into it
 #if defined(__GNUC__)
 #define DUCKDB_BLOCK_SCAN_ALIGNED __attribute__((aligned(64)))
+#define DUCKDB_BLOCK_SCAN_INLINE  inline __attribute__((always_inline))
 #else
 #define DUCKDB_BLOCK_SCAN_ALIGNED
+#define DUCKDB_BLOCK_SCAN_INLINE inline
 #endif
 
 namespace duckdb {
@@ -114,7 +117,7 @@ public:
 		return 0;
 	}
 	template <class T>
-	static inline void SkipValues(T &result, const idx_t count, const idx_t buffer_pos) {
+	static inline void SkipValues(T &result, const idx_t count, const idx_t first_buffer_pos, const idx_t buffer_pos) {
 	}
 
 	//! Variable to keep information regarding quoted and escaped values
@@ -369,7 +372,7 @@ protected:
 
 	//! The delimiter at `at`, `before` is the state before it
 	template <class T>
-	void BlockDelimiter(T &result, const idx_t at, const CSVState before) {
+	DUCKDB_BLOCK_SCAN_INLINE void BlockDelimiter(T &result, const idx_t at, const CSVState before) {
 		states.states[0] = before;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = at;
@@ -423,7 +426,7 @@ protected:
 		states.states[0] = before_last;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = last_delimiter;
-		T::SkipValues(result, consumed, last_delimiter);
+		T::SkipValues(result, consumed, at, last_delimiter);
 		return last_delimiter + 1;
 	}
 

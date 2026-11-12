@@ -91,6 +91,8 @@ public:
 	//! Variables to handle projection pushdown
 	set<idx_t> projected_columns;
 	std::vector<std::pair<idx_t, idx_t>> projection_ids;
+	//! The scan reads no column, it only counts rows (count(*)); the first column is still validated as before
+	bool only_counts_rows = false;
 
 	//! Options for this CSV Reader
 	CSVReaderOptions options;
