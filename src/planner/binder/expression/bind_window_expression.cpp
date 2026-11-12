@@ -84,7 +84,8 @@ BindResult BaseSelectBinder::BindWindowExpression(WindowExpression &window, idx_
 	QueryErrorContext error_context(window.GetQueryLocation());
 
 	//	Check for macros pretending to be aggregates
-	EntryLookupInfo function_lookup(CatalogType::SCALAR_FUNCTION_ENTRY, window.GetQualifiedName(), error_context);
+	EntryLookupInfo function_lookup(CatalogType::SCALAR_FUNCTION_ENTRY, binder.BindTableName(window.GetQualifiedName()),
+	                                error_context);
 	auto entry = GetCatalogEntry(function_lookup, OnEntryNotFound::RETURN_NULL);
 	if (entry && entry->type == CatalogType::MACRO_ENTRY) {
 		auto macro_expr = window.Copy();
