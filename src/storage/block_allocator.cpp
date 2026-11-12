@@ -396,31 +396,52 @@ class AllocationCache {
 	static constexpr idx_t MAX_LOCAL_SPARES = 16;
 	// Retain at most 1 GiB per size class, or one larger allocation.
 	static constexpr idx_t MAX_CACHED_BYTES_PER_BUCKET = 1024ULL * 1024 * 1024;
+	static constexpr idx_t REGISTERING = 1;
 
 	struct alignas(64) Bucket {
 		vector<Queue> queues;
+		atomic<idx_t> size {0};
 		alignas(64) atomic<idx_t> count {0};
 		atomic<idx_t> last_return_ms {0};
 	};
 
 public:
 	explicit AllocationCache(Allocator &allocator) : allocator(allocator), shard_count(GetShardCount()) {
-		for (auto &bucket : buckets) {
-			bucket.queues.resize(shard_count);
+		for (idx_t i = 0; i < buckets.size(); i++) {
+			buckets[i].size.store(static_cast<idx_t>(1) << (MIN_SHIFT + i), std::memory_order_relaxed);
+			buckets[i].queues.resize(shard_count);
 		}
+		exact_bucket.queues.resize(shard_count);
 	}
 	~AllocationCache() {
 		Flush(NumericLimits<idx_t>::Maximum());
 	}
 
+	//! One exact size besides the powers of two, the first registration wins
+	bool RegisterSize(idx_t size) {
+		if (size < (static_cast<idx_t>(1) << MIN_SHIFT) || size > (static_cast<idx_t>(1) << MAX_SHIFT) ||
+		    IsPowerOfTwo(size)) {
+			return false;
+		}
+		// the bucket size is set before the size is published, REGISTERING is never a supported size
+		idx_t expected = 0;
+		if (!exact_size.compare_exchange_strong(expected, REGISTERING)) {
+			return expected == size;
+		}
+		exact_bucket.size.store(size, std::memory_order_release);
+		exact_size.store(size, std::memory_order_release);
+		return true;
+	}
 	bool SupportsSize(idx_t size) const {
-		return size >= (static_cast<idx_t>(1) << MIN_SHIFT) && size <= (static_cast<idx_t>(1) << MAX_SHIFT) &&
-		       IsPowerOfTwo(size);
+		if (size < (static_cast<idx_t>(1) << MIN_SHIFT) || size > (static_cast<idx_t>(1) << MAX_SHIFT)) {
+			return false;
+		}
+		return IsPowerOfTwo(size) || size == exact_size.load(std::memory_order_acquire);
 	}
 	data_ptr_t TryAllocate(idx_t size) {
 		D_ASSERT(SupportsSize(size));
 		const auto shard = LocalShard();
-		auto &bucket = buckets[CountZeros<idx_t>::Trailing(size) - MIN_SHIFT];
+		auto &bucket = GetBucket(size);
 		data_ptr_t pointer;
 		if (bucket.queues[shard].try_dequeue(pointer)) {
 			bucket.count.fetch_sub(1, std::memory_order_relaxed);
@@ -443,7 +464,7 @@ public:
 		if (!pointer) {
 			return false;
 		}
-		auto &bucket = buckets[CountZeros<idx_t>::Trailing(size) - MIN_SHIFT];
+		auto &bucket = GetBucket(size);
 		if (bucket.count.fetch_add(1, std::memory_order_relaxed) <
 		    MaxValue<idx_t>(MAX_CACHED_BYTES_PER_BUCKET / size, 1)) {
 			try {
@@ -464,46 +485,63 @@ public:
 	}
 
 	idx_t GetCachedMemory(optional_idx idle_before = optional_idx()) const {
-		idx_t bytes = 0;
-		for (idx_t i = 0; i < buckets.size(); i++) {
-			const auto &bucket = buckets[i];
-			if (!idle_before.IsValid() ||
-			    bucket.last_return_ms.load(std::memory_order_relaxed) <= idle_before.GetIndex()) {
-				bytes += bucket.count.load(std::memory_order_relaxed) << (MIN_SHIFT + i);
-			}
+		idx_t bytes = GetCachedMemory(exact_bucket, idle_before);
+		for (auto &bucket : buckets) {
+			bytes += GetCachedMemory(bucket, idle_before);
 		}
 		return bytes;
 	}
 
 	// Maintenance is serialized by BlockAllocator; allocation and return never take that lock.
 	idx_t Flush(idx_t byte_limit, optional_idx idle_before = optional_idx()) {
-		idx_t freed = 0;
+		idx_t freed = Flush(exact_bucket, byte_limit, idle_before);
 		for (idx_t i = buckets.size(); i > 0 && freed < byte_limit; i--) {
-			auto &bucket = buckets[i - 1];
-			const idx_t size = static_cast<idx_t>(1) << (MIN_SHIFT + i - 1);
-			// A snapshot bounds the work even if producers continue returning buffers.
-			auto remaining = bucket.count.load(std::memory_order_relaxed);
-			for (auto &queue : bucket.queues) {
-				data_ptr_t pointer;
-				while (remaining > 0 && freed < byte_limit) {
-					if (idle_before.IsValid() &&
-					    bucket.last_return_ms.load(std::memory_order_relaxed) > idle_before.GetIndex()) {
-						break;
-					}
-					if (!queue.try_dequeue(pointer)) {
-						break;
-					}
-					allocator.FreeData(pointer, size);
-					bucket.count.fetch_sub(1, std::memory_order_relaxed);
-					freed += size;
-					remaining--;
-				}
-			}
+			freed += Flush(buckets[i - 1], byte_limit - freed, idle_before);
 		}
 		return freed;
 	}
 
 private:
+	Bucket &GetBucket(idx_t size) {
+		if (size == exact_size.load(std::memory_order_acquire)) {
+			return exact_bucket;
+		}
+		return buckets[CountZeros<idx_t>::Trailing(size) - MIN_SHIFT];
+	}
+	static idx_t GetCachedMemory(const Bucket &bucket, optional_idx idle_before) {
+		if (idle_before.IsValid() && bucket.last_return_ms.load(std::memory_order_relaxed) > idle_before.GetIndex()) {
+			return 0;
+		}
+		// the size is read first, the exact bucket holds nothing before its size is set
+		const auto size = bucket.size.load(std::memory_order_acquire);
+		return size * bucket.count.load(std::memory_order_relaxed);
+	}
+	idx_t Flush(Bucket &bucket, idx_t byte_limit, optional_idx idle_before) {
+		idx_t freed = 0;
+		const auto size = bucket.size.load(std::memory_order_acquire);
+		if (size == 0) {
+			return freed;
+		}
+		// A snapshot bounds the work even if producers continue returning buffers.
+		auto remaining = bucket.count.load(std::memory_order_relaxed);
+		for (auto &queue : bucket.queues) {
+			data_ptr_t pointer;
+			while (remaining > 0 && freed < byte_limit) {
+				if (idle_before.IsValid() &&
+				    bucket.last_return_ms.load(std::memory_order_relaxed) > idle_before.GetIndex()) {
+					break;
+				}
+				if (!queue.try_dequeue(pointer)) {
+					break;
+				}
+				allocator.FreeData(pointer, size);
+				bucket.count.fetch_sub(1, std::memory_order_relaxed);
+				freed += size;
+				remaining--;
+			}
+		}
+		return freed;
+	}
 	static idx_t GetShardCount() {
 #ifndef DUCKDB_NO_THREADS
 		const idx_t cpus = std::thread::hardware_concurrency();
@@ -521,6 +559,8 @@ private:
 	Allocator &allocator;
 	const idx_t shard_count;
 	array<Bucket, MAX_SHIFT - MIN_SHIFT + 1> buckets;
+	atomic<idx_t> exact_size {0};
+	Bucket exact_bucket;
 };
 
 BlockAllocator::BlockAllocator(Allocator &allocator_p, const idx_t block_size_p, const idx_t pool_size_p)
@@ -678,6 +718,10 @@ data_ptr_t BlockAllocator::AllocateData(const idx_t size) const {
 
 idx_t BlockAllocator::GetCachedMemory() const {
 	return GetCachedPoolMemory() + allocation_cache->GetCachedMemory();
+}
+
+bool BlockAllocator::RegisterCachedSize(const idx_t size) const {
+	return allocation_cache->RegisterSize(size);
 }
 
 idx_t BlockAllocator::GetCachedPoolMemory() const {

@@ -516,6 +516,97 @@ TEST_CASE("Allocation cache reuses compatible allocations and releases retained 
 	REQUIRE(live_bytes.load() == 0);
 }
 
+TEST_CASE("Allocation cache keeps one registered exact size", "[api][allocation_cache]") {
+	bool pinned = false;
+#if defined(__linux__)
+	AllocationCacheTestAffinity affinity;
+	const auto cpus = affinity.CPUs();
+	pinned = !cpus.empty() && affinity.Pin(cpus[0]);
+#endif
+	// the allocation of a default CSV buffer, not a power of two
+	constexpr idx_t SIZE = 32002048;
+	constexpr idx_t OTHER = SIZE + 4096;
+	atomic<idx_t> live_bytes {0};
+	Allocator fallback(CacheTestAllocate, CacheTestFree, CacheTestReallocate,
+	                   make_uniq<AllocationCacheTestData>(live_bytes));
+	{
+		BlockAllocator allocator(fallback, 256 * 1024, 0);
+		auto uncached = allocator.AllocateData(SIZE);
+		allocator.FreeData(uncached, SIZE);
+		REQUIRE(live_bytes.load() == 0);
+
+		REQUIRE(!allocator.RegisterCachedSize(1024 * 1024));
+		REQUIRE(!allocator.RegisterCachedSize(4096));
+		REQUIRE(allocator.RegisterCachedSize(SIZE));
+		REQUIRE(allocator.RegisterCachedSize(SIZE));
+		REQUIRE(!allocator.RegisterCachedSize(OTHER));
+
+		auto first = allocator.AllocateData(SIZE);
+		first[0] = 42;
+		first[SIZE - 1] = 84;
+		allocator.FreeData(first, SIZE);
+		REQUIRE(live_bytes.load() == SIZE);
+		REQUIRE(allocator.GetCachedMemory() == SIZE);
+		auto reused = allocator.AllocateData(SIZE);
+		if (pinned) {
+			REQUIRE(reused == first);
+			REQUIRE(reused[0] == 42);
+			REQUIRE(reused[SIZE - 1] == 84);
+		}
+		if (pinned) {
+			REQUIRE(allocator.GetCachedMemory() == 0);
+		}
+		allocator.FreeData(reused, SIZE);
+
+		// a size that is not registered is not kept
+		const auto cached_before_other = live_bytes.load();
+		auto other = allocator.AllocateData(OTHER);
+		allocator.FreeData(other, OTHER);
+		REQUIRE(live_bytes.load() == cached_before_other);
+
+		SECTION("The registered size keeps the byte limit of every size class") {
+			vector<data_ptr_t> pointers;
+			for (idx_t i = 0; i < 40; i++) {
+				pointers.push_back(allocator.AllocateData(SIZE));
+			}
+			for (auto pointer : pointers) {
+				allocator.FreeData(pointer, SIZE);
+			}
+			constexpr idx_t LIMIT = 1024ULL * 1024 * 1024 / SIZE;
+			CHECK(live_bytes.load() == LIMIT * SIZE);
+			CHECK(allocator.GetCachedMemory() == LIMIT * SIZE);
+		}
+		SECTION("Reclamation releases the registered size") {
+			allocator.FlushAll();
+			CHECK(allocator.GetCachedMemory() == 0);
+			CHECK(live_bytes.load() == 0);
+		}
+	}
+	REQUIRE(live_bytes.load() == 0);
+}
+
+TEST_CASE("CSV buffers of the default size are kept by the allocation cache", "[api][allocation_cache]") {
+	// no worker threads, so no idle decay empties the cache before the check
+	DBConfig config;
+	config.options.maximum_threads = 1;
+	config.options.async_threads = 0;
+	DuckDB db(nullptr, &config);
+	Connection con(db);
+	auto &allocator = BlockAllocator::Get(*db.instance);
+	const auto path = TestCreatePath("csv_buffer_allocation_cache.csv");
+	// more than one default buffer of 32,000,000 bytes
+	REQUIRE_NO_FAIL(
+	    con.Query("COPY (SELECT range AS i, repeat('x', 100) AS s FROM range(400000)) TO '" + path + "' (FORMAT CSV)"));
+	allocator.FlushAll();
+	auto result = con.Query("SELECT count(*) FROM read_csv('" + path + "')");
+	REQUIRE_NO_FAIL(*result);
+	REQUIRE(CHECK_COLUMN(result, 0, {Value::BIGINT(400000)}));
+	const auto buffer_allocation = BufferManager::GetAllocSize(32000000 + Storage::DEFAULT_BLOCK_HEADER_SIZE);
+	CHECK(allocator.GetCachedMemory() >= buffer_allocation);
+	allocator.FlushAll();
+	CHECK(allocator.GetCachedMemory() < buffer_allocation);
+}
+
 TEST_CASE("Huge allocation retention shares cache ownership and pressure reclamation", "[api][allocation_cache]") {
 	const auto size = GENERATE(idx_t(8 * 1024 * 1024), idx_t(128 * 1024 * 1024));
 	bool pinned = false;

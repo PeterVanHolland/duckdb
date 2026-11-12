@@ -3,6 +3,8 @@
 #include "duckdb/execution/operator/csv_scanner/csv_random_access_buffer_manager.hpp"
 #include "duckdb/execution/operator/csv_scanner/csv_buffer.hpp"
 #include "duckdb/function/table/read_csv.hpp"
+#include "duckdb/storage/block_allocator.hpp"
+#include "duckdb/storage/buffer_manager.hpp"
 namespace duckdb {
 
 CSVBufferManager::CSVBufferManager(ClientContext &context_p, const CSVReaderOptions &options,
@@ -11,6 +13,18 @@ CSVBufferManager::CSVBufferManager(ClientContext &context_p, const CSVReaderOpti
     : file_handle(std::move(file_handle_p)), context(context_p), per_file_single_threaded(per_file_single_threaded_p),
       file(file_p), buffer_size(options.buffer_size_option.GetValue()) {
 	D_ASSERT(file_handle);
+	RegisterDefaultBufferAllocation(context, buffer_size);
+}
+
+void CSVBufferManager::RegisterDefaultBufferAllocation(ClientContext &context, idx_t buffer_size) {
+	// the allocation of a default sized buffer is kept by the allocation cache for the next buffer of that size
+	if (buffer_size != CSVBuffer::ROWS_PER_BUFFER * CSVReaderOptions::max_line_size_default) {
+		return;
+	}
+	auto &buffer_manager = BufferManager::GetBufferManager(context);
+	const auto allocation_size = BufferManager::GetAllocSize(
+	    MaxValue<idx_t>(buffer_manager.GetBlockSize(), buffer_size) + Storage::DEFAULT_BLOCK_HEADER_SIZE);
+	BlockAllocator::Get(*context.db).RegisterCachedSize(allocation_size);
 }
 
 shared_ptr<CSVBufferManager> CSVBufferManager::Open(ClientContext &context, const CSVReaderOptions &options,
