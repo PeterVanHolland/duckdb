@@ -1,0 +1,101 @@
+# name: test/sql/subquery/exists/test_not_exists_range_anti.test
+# description: A correlated NOT EXISTS with only range predicates is planned as an ANTI join, not a MARK join
+# group: [exists]
+
+statement ok
+CREATE TABLE snapshots AS SELECT range AS snapshot_id FROM range(40)
+
+statement ok
+CREATE TABLE files AS
+SELECT range AS file_id, (range % 20)::BIGINT AS begin_snapshot, (20 + range % 30)::BIGINT AS end_snapshot FROM range(200)
+UNION ALL SELECT 200, 45, 50
+UNION ALL SELECT 201, NULL, 10
+UNION ALL SELECT 202, 5, NULL
+
+statement ok
+PRAGMA explain_output = OPTIMIZED_ONLY
+
+query II
+EXPLAIN SELECT count(*) FROM files
+WHERE NOT EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot)
+----
+logical_opt	<!REGEX>:.*MARK.*
+
+query I
+SELECT list(file_id ORDER BY file_id) FROM files
+WHERE NOT EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot)
+----
+[200, 201, 202]
+
+# a marker in the select list, a NOT IN whose condition can be NULL, and EXISTS with NOT EXISTS keep MARK semantics
+query II nosort selected_marker
+SELECT file_id, NOT EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot)
+FROM files WHERE file_id >= 198 ORDER BY file_id
+----
+
+query I nosort not_in
+SELECT list(file_id ORDER BY file_id) FROM files
+WHERE begin_snapshot NOT IN (SELECT CASE WHEN snapshot_id = 3 THEN NULL ELSE snapshot_id + 5 END FROM snapshots WHERE snapshot_id < end_snapshot - 25)
+----
+
+query I nosort exists_and_not_exists
+SELECT list(file_id ORDER BY file_id) FROM files
+WHERE EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id = begin_snapshot)
+AND NOT EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id >= end_snapshot - 1 AND snapshot_id < end_snapshot)
+----
+
+# only equality conditions let the deliminator drop the domain of an ANTI join
+statement ok
+CREATE TABLE o AS SELECT 2 AS v
+
+statement ok
+CREATE TABLE i AS SELECT 1 AS v
+
+query I
+SELECT count(*) FROM o WHERE NOT EXISTS (SELECT 1 FROM (SELECT i.v FROM i WHERE i.v <> o.v) q WHERE q.v <> o.v)
+----
+0
+
+statement ok
+CREATE TABLE o3 AS SELECT * FROM (VALUES (1, 2, 0), (1, NULL, 1), (2, 1, NULL), (NULL, 3, 2), (3, 3, 3), (2, 2, 1), (4, NULL, NULL)) t(k, v, w)
+
+statement ok
+CREATE TABLE i3 AS SELECT * FROM (VALUES (1, 1, 0), (1, 3, NULL), (2, 1, 1), (NULL, 2, 2), (3, NULL, 3), (2, 2, 2)) t(k, v, w)
+
+query III
+SELECT count(*), sum(o.v), sum(o.w) FROM o3 o WHERE NOT EXISTS (
+SELECT 1 FROM (SELECT i.k, i.v, i.w FROM i3 i WHERE i.w IS DISTINCT FROM o.k AND i.v = o.w) q WHERE q.k >= o.k)
+----
+5	9	5
+
+query III
+SELECT count(*), sum(o.v), sum(o.w) FROM o3 o WHERE NOT EXISTS (
+SELECT 1 FROM (SELECT i.k, i.v, i.w FROM i3 i WHERE i.w IS DISTINCT FROM o.k AND i.v IS NOT DISTINCT FROM o.w) q WHERE q.v IS DISTINCT FROM o.k)
+----
+3	5	4
+
+# the delim join stays a delim join without the rewrite into a CTE
+statement ok
+SET delim_join_as_cte = false
+
+query I
+SELECT list(file_id ORDER BY file_id) FROM files
+WHERE NOT EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot)
+----
+[200, 201, 202]
+
+query II nosort selected_marker
+SELECT file_id, NOT EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot)
+FROM files WHERE file_id >= 198 ORDER BY file_id
+----
+
+query I nosort not_in
+SELECT list(file_id ORDER BY file_id) FROM files
+WHERE begin_snapshot NOT IN (SELECT CASE WHEN snapshot_id = 3 THEN NULL ELSE snapshot_id + 5 END FROM snapshots WHERE snapshot_id < end_snapshot - 25)
+----
+
+query I nosort exists_and_not_exists
+SELECT list(file_id ORDER BY file_id) FROM files
+WHERE EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id = begin_snapshot)
+AND NOT EXISTS (SELECT 1 FROM snapshots WHERE snapshot_id >= end_snapshot - 1 AND snapshot_id < end_snapshot)
+----
