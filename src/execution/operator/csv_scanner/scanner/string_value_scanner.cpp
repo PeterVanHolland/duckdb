@@ -86,7 +86,17 @@ StringValueResult::StringValueResult(CSVStates &states, CSVStateMachine &state_m
 			}
 		}
 		names = csv_file_scan->GetNames();
-		if (!csv_file_scan->projected_columns.empty()) {
+		if (csv_file_scan->only_counts_rows) {
+			// no column is read: every column is skipped, the first one is still validated
+			projecting_columns = true;
+			validate_first_column = true;
+			only_counts_rows = true;
+			projected_columns = make_unsafe_uniq_array<bool>(number_of_columns);
+			for (idx_t col_idx = 0; col_idx < number_of_columns; col_idx++) {
+				projected_columns[col_idx] = false;
+				parse_types[col_idx] = ParseTypeInfo(varchar_type, true);
+			}
+		} else if (!csv_file_scan->projected_columns.empty()) {
 			projecting_columns = false;
 			projected_columns = make_unsafe_uniq_array<bool>(number_of_columns);
 			for (idx_t col_idx = 0; col_idx < number_of_columns; col_idx++) {
@@ -98,6 +108,8 @@ StringValueResult::StringValueResult(CSVStates &states, CSVStateMachine &state_m
 					projected_columns[col_idx] = true;
 				}
 			}
+		}
+		if (projecting_columns) {
 			unprojected_run = make_unsafe_uniq_array<idx_t>(number_of_columns);
 			idx_t run = 0;
 			for (idx_t col_idx = number_of_columns; col_idx > 0; col_idx--) {
@@ -271,6 +283,9 @@ void StringValueResult::AddValueToVector(const char *value_ptr, idx_t size, bool
 	}
 
 	if (CanSkipValue(*this)) {
+		if (validate_first_column && cur_col_id == 0) {
+			ValidateSkippedFirstColumn(value_ptr, size, false);
+		}
 		cur_col_id++;
 		return;
 	}
@@ -606,6 +621,9 @@ void StringValueResult::AddPossiblyEscapedValue(StringValueResult &result, const
 	if (result.escaped) {
 		if (result.projecting_columns && result.cur_col_id < result.number_of_columns) {
 			if (!result.projected_columns[result.cur_col_id]) {
+				if (result.validate_first_column && result.cur_col_id == 0) {
+					result.ValidateSkippedFirstColumn(value_ptr, length, true);
+				}
 				result.cur_col_id++;
 				result.escaped = false;
 				return;
@@ -697,16 +715,68 @@ void StringValueResult::SkipValueInternal() {
 	escaped = false;
 }
 
+void StringValueResult::ValidateSkippedFirstColumn(const char *value_ptr, idx_t size, bool escaped) {
+	D_ASSERT(validate_first_column && cur_col_id == 0);
+	if (escaped) {
+		// the value as the scan reading it would store it, with the escapes removed (the rule of RemoveEscape)
+		const auto escape = state_machine.dialect_options.state_machine_options.escape.GetValue();
+		const auto quote = state_machine.dialect_options.state_machine_options.quote.GetValue();
+		const bool strict_mode = state_machine.dialect_options.state_machine_options.strict_mode.GetValue();
+		string unescaped;
+		unescaped.reserve(size);
+		bool just_escaped = false;
+		for (idx_t i = 0; i < size; i++) {
+			const char c = value_ptr[i];
+			if (c == escape && !just_escaped) {
+				just_escaped = true;
+			} else if (c == quote) {
+				if (just_escaped || !strict_mode) {
+					unescaped.push_back(c);
+				}
+				just_escaped = false;
+			} else {
+				just_escaped = false;
+				unescaped.push_back(c);
+			}
+		}
+		if (!Utf8Proc::IsValid(unescaped.c_str(), UnsafeNumericCast<uint32_t>(unescaped.size()))) {
+			current_errors.Insert(INVALID_ENCODING, cur_col_id, chunk_col_id, last_position);
+		}
+		return;
+	}
+	if (!Utf8Proc::IsValid(value_ptr, UnsafeNumericCast<uint32_t>(size))) {
+		current_errors.Insert(INVALID_ENCODING, cur_col_id, chunk_col_id, last_position);
+	}
+}
+
+void StringValueResult::ValidateSkippedFirstColumn(idx_t buffer_pos, bool row_end) {
+	// the raw bytes of the value, quotes included: ASCII bytes do not change the validity of what is between them
+	const idx_t delimiter_bytes =
+	    row_end ? 0 : state_machine.dialect_options.state_machine_options.delimiter.GetValue().size() - 1;
+	const idx_t begin = last_position.buffer_pos;
+	const idx_t end = buffer_pos - delimiter_bytes;
+	if (end > begin) {
+		ValidateSkippedFirstColumn(buffer_ptr + begin, end - begin, false);
+	}
+}
+
 void StringValueResult::SkipValue(StringValueResult &result, const idx_t buffer_pos) {
 	if (result.last_position.buffer_pos > buffer_pos) {
 		return;
+	}
+	if (result.validate_first_column && result.cur_col_id == 0) {
+		result.ValidateSkippedFirstColumn(buffer_pos, false);
 	}
 	result.SkipValueInternal();
 	result.last_position.buffer_pos = buffer_pos + 1;
 }
 
-void StringValueResult::SkipValues(StringValueResult &result, const idx_t count, const idx_t buffer_pos) {
+void StringValueResult::SkipValues(StringValueResult &result, const idx_t count, const idx_t first_buffer_pos,
+                                   const idx_t buffer_pos) {
 	D_ASSERT(count > 0 && result.last_position.buffer_pos <= buffer_pos);
+	if (result.validate_first_column && result.cur_col_id == 0) {
+		result.ValidateSkippedFirstColumn(first_buffer_pos, false);
+	}
 	// the first value may close a quoted value, the ones after it are plain
 	result.SkipValueInternal();
 	result.cur_col_id += count - 1;
@@ -1016,8 +1086,25 @@ bool StringValueResult::AddRow(StringValueResult &result, const idx_t buffer_pos
 	return result.AddRowInternal();
 }
 
+bool StringValueResult::AddCountedRows(StringValueResult &result, const idx_t rows, const idx_t row_end,
+                                       const idx_t after_row_end) {
+	D_ASSERT(result.only_counts_rows && rows > 0 && !result.quoted && !result.escaped && !result.comment);
+	D_ASSERT(!result.current_errors.IsErrorInLine());
+	result.number_of_rows += UnsafeNumericCast<int64_t>(rows);
+	// the rows are complete and valid: only the positions the next row or error needs are kept
+	result.current_line_position.begin = result.current_line_position.end;
+	result.current_line_position.end = {result.iterator.pos.buffer_idx, row_end, result.buffer_size};
+	result.last_position = {result.iterator.pos.buffer_idx, after_row_end, result.buffer_size};
+	result.cur_col_id = 0;
+	result.chunk_col_id = 0;
+	return static_cast<idx_t>(result.number_of_rows) >= result.result_size;
+}
+
 bool StringValueResult::AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos) {
 	if (result.last_position.buffer_pos <= buffer_pos) {
+		if (result.validate_first_column && result.cur_col_id == 0) {
+			result.ValidateSkippedFirstColumn(buffer_pos, true);
+		}
 		result.SkipValueInternal();
 		result.SetLastPositionAfterNewline(buffer_pos);
 	}
@@ -1054,16 +1141,21 @@ bool StringValueResult::EmptyLine(StringValueResult &result, const idx_t buffer_
 			empty_is_null = result.null_str_size[i] == 0;
 		}
 		if (empty_is_null) {
-			bool empty = false;
-			if (!result.state_machine.options.force_not_null.empty()) {
-				empty = result.state_machine.options.force_not_null[0];
-			}
-			if (empty) {
-				static_cast<string_t *>(result.vector_ptr[0])[result.number_of_rows] = string_t();
+			if (result.projecting_columns && !result.projected_columns[0]) {
+				// the single column is not read, the empty line still counts as a row
+				result.number_of_rows++;
 			} else {
-				result.validity_mask[0]->SetInvalid(static_cast<idx_t>(result.number_of_rows));
+				bool empty = false;
+				if (!result.state_machine.options.force_not_null.empty()) {
+					empty = result.state_machine.options.force_not_null[0];
+				}
+				if (empty) {
+					static_cast<string_t *>(result.vector_ptr[0])[result.number_of_rows] = string_t();
+				} else {
+					result.validity_mask[0]->SetInvalid(static_cast<idx_t>(result.number_of_rows));
+				}
+				result.number_of_rows++;
 			}
-			result.number_of_rows++;
 		}
 		if (static_cast<idx_t>(result.number_of_rows) >= result.result_size) {
 			// We have a full chunk
@@ -1577,38 +1669,57 @@ void StringValueScanner::ProcessOverBufferValue() {
 		// the file ended inside a quoted value: record that before the value itself is added
 		result.current_errors.Insert(UNTERMINATED_QUOTES, result.cur_col_id, result.chunk_col_id, result.last_position);
 	}
-	bool skip_value = false;
-	if (result.projecting_columns) {
-		if (result.cur_col_id < result.number_of_columns && !result.projected_columns[result.cur_col_id]) {
-			result.cur_col_id++;
-			skip_value = true;
+	const auto &delimiter = result.state_machine.dialect_options.state_machine_options.delimiter.GetValue();
+	const idx_t extra_delimiter_bytes = states.IsDelimiter() && !delimiter.empty() ? delimiter.size() - 1 : 0;
+	const bool empty_line = states.EmptyLine() && state_machine->dialect_options.num_cols == 1;
+	// the value as the scan reading it takes it: a quoted value from its opening quote, without the spaces after
+	// the closing quote when they are ignored, and without the bytes of a multi byte delimiter after it
+	const char *value_ptr = over_buffer_string.c_str();
+	idx_t value_length = over_buffer_string.size();
+	bool removed_extra_delimiter_bytes = false;
+	if (result.quoted && !result.comment) {
+		idx_t length = over_buffer_string.size() - 1 - result.quoted_position;
+		while (length > 0 && result.ignore_empty_values &&
+		       over_buffer_string.c_str()[result.quoted_position + length] == ' ') {
+			length--;
 		}
+		// remove the extra delimiter bytes before removing escapes, which can change the length of the value
+		if (extra_delimiter_bytes > length) {
+			throw InternalException(
+			    "Value size is lower than the number of extra delimiter bytes in the ProcessOverBufferValue()");
+		}
+		length -= extra_delimiter_bytes;
+		removed_extra_delimiter_bytes = true;
+		value_ptr = over_buffer_string.c_str() + result.quoted_position;
+		value_length = length;
+	}
+	bool skip_value = false;
+	if (result.projecting_columns && result.cur_col_id < result.number_of_columns &&
+	    !result.projected_columns[result.cur_col_id]) {
+		// the value is not read; it counts as a column under the conditions of the add below: a set state, not a
+		// comment without a value before it, not an empty line of a single column file
+		if (!states.IsNotSet() && (!result.comment || !over_buffer_string.empty()) && !empty_line) {
+			if (result.validate_first_column && result.cur_col_id == 0) {
+				const idx_t unread_bytes = removed_extra_delimiter_bytes ? 0 : extra_delimiter_bytes;
+				if (value_length >= unread_bytes) {
+					result.ValidateSkippedFirstColumn(value_ptr, value_length - unread_bytes, result.escaped);
+				}
+			}
+			result.cur_col_id++;
+		}
+		skip_value = true;
 	}
 	if (!skip_value) {
 		string_t value;
-		const auto &delimiter = result.state_machine.dialect_options.state_machine_options.delimiter.GetValue();
-		const idx_t extra_delimiter_bytes = states.IsDelimiter() && !delimiter.empty() ? delimiter.size() - 1 : 0;
-		bool removed_extra_delimiter_bytes = false;
 		if (result.quoted && !result.comment) {
-			idx_t length = over_buffer_string.size() - 1 - result.quoted_position;
-			while (length > 0 && result.ignore_empty_values &&
-			       over_buffer_string.c_str()[result.quoted_position + length] == ' ') {
-				length--;
-			}
-			// remove the extra delimiter bytes before removing escapes, which can change the length of the value
-			if (extra_delimiter_bytes > length) {
-				throw InternalException(
-				    "Value size is lower than the number of extra delimiter bytes in the ProcessOverBufferValue()");
-			}
-			length -= extra_delimiter_bytes;
-			removed_extra_delimiter_bytes = true;
-			value = string_t(over_buffer_string.c_str() + result.quoted_position, UnsafeNumericCast<uint32_t>(length));
+			value = string_t(value_ptr, UnsafeNumericCast<uint32_t>(value_length));
 			if (result.escaped) {
 				if (result.cur_col_id >= result.number_of_columns &&
 				    !result.state_machine.state_machine_options.strict_mode.GetValue()) {
 					result.used_unstrictness = true;
 				} else if (!result.HandleTooManyColumnsError(over_buffer_string.c_str(), over_buffer_string.size())) {
-					const auto str_ptr = over_buffer_string.c_str() + result.quoted_position;
+					const auto str_ptr = value_ptr;
+					const idx_t length = value_length;
 					if (result.parse_chunk.data[result.chunk_col_id].GetType() != LogicalType::VARCHAR) {
 						// We cant have escapes on non varchar columns
 						result.current_errors.Insert(CAST_ERROR, result.cur_col_id, result.chunk_col_id,
@@ -1666,7 +1777,7 @@ void StringValueScanner::ProcessOverBufferValue() {
 				}
 			}
 		}
-		if (states.EmptyLine() && state_machine->dialect_options.num_cols == 1) {
+		if (empty_line) {
 			result.EmptyLine(result, iterator.pos.buffer_pos);
 		} else if (!states.IsNotSet() && (!result.comment || !value.Empty())) {
 			idx_t value_size = value.GetSize();
@@ -1679,10 +1790,8 @@ void StringValueScanner::ProcessOverBufferValue() {
 			}
 			result.AddValueToVector(value.GetData(), value_size, true);
 		}
-	} else {
-		if (states.EmptyLine() && state_machine->dialect_options.num_cols == 1) {
-			result.EmptyLine(result, iterator.pos.buffer_pos);
-		}
+	} else if (empty_line) {
+		result.EmptyLine(result, iterator.pos.buffer_pos);
 	}
 
 	if (states.NewRow() && !states.IsNotSet()) {

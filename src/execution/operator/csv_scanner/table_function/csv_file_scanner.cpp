@@ -111,11 +111,8 @@ void CSVFileScan::SetNamesAndTypes(const vector<Identifier> &names_p, const vect
 
 void CSVFileScan::InitializeFileNamesTypes() {
 	if (column_ids.empty()) {
-		// This means that the columns from this file are irrelevant.
-		// just read the first column
-		file_types.emplace_back(LogicalType::VARCHAR);
-		projected_columns.insert(0);
-		projection_ids.emplace_back(0, 0);
+		// the columns of this file are irrelevant, the scan only counts rows
+		only_counts_rows = true;
 		return;
 	}
 

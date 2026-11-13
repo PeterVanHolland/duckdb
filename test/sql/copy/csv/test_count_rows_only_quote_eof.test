@@ -1,0 +1,21 @@
+# name: test/sql/copy/csv/test_count_rows_only_quote_eof.test
+# description: count(*) over a file ending in an unterminated quoted invalid byte validates the value the scan reading it takes
+# group: [csv]
+
+# the fixture depends on exact byte offsets
+require notwindows
+
+# with two row chunks the error row at the end of the file trips an unrelated error of the base, so the case needs the default chunk size
+require vector_size 2048
+
+# block_scan_count_rows_quote_eof.csv holds 2,048 rows of `a` and an unterminated quoted invalid byte at the end of the file, stitched over
+# a 128 byte buffer edge; the value the scan reading it takes is validated, not the raw bytes
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_quote_eof.csv', auto_detect=false, header=false, delim=',', quote='"', escape='"', new_line='\n', columns={'c0':'VARCHAR'}, buffer_size=128, parallel=false, strict_mode=false, ignore_errors=true)
+----
+2049
+
+query I
+SELECT count(c0) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_quote_eof.csv', auto_detect=false, header=false, delim=',', quote='"', escape='"', new_line='\n', columns={'c0':'VARCHAR'}, buffer_size=128, parallel=false, strict_mode=false, ignore_errors=true)
+----
+2048
