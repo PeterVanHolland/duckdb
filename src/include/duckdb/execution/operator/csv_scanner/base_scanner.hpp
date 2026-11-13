@@ -105,6 +105,17 @@ public:
 	static inline bool AddRowWithoutValue(T &result, const idx_t buffer_pos) {
 		return false;
 	}
+	template <class T>
+	static inline bool SkipsRuns(const T &result) {
+		return false;
+	}
+	template <class T>
+	static inline idx_t SkippableRun(const T &result, const idx_t buffer_pos) {
+		return 0;
+	}
+	template <class T>
+	static inline void SkipValues(T &result, const idx_t count, const idx_t buffer_pos) {
+	}
 
 	//! Variable to keep information regarding quoted and escaped values
 	bool quoted = false;
@@ -369,6 +380,53 @@ protected:
 		}
 	}
 
+	//! The delimiter at `at` (the last byte of a multi byte delimiter) and the delimiters of the unprojected columns
+	//! that follow it in the block, `run` at most, with one bookkeeping call. `last` is the first byte after the
+	//! previous structural byte. Returns the first byte after the last consumed delimiter
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT>
+	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t last,
+	                        uint64_t &candidates, const idx_t pos, const idx_t limit) {
+		idx_t last_delimiter = at;
+		CSVState before_last = before;
+		idx_t consumed = 1;
+		while (consumed < run && candidates) {
+			const idx_t next = pos + CountZeros<uint64_t>::Trailing(candidates);
+			if (next >= limit) {
+				break;
+			}
+			const auto byte = static_cast<uint8_t>(buffer_handle_ptr[next]);
+			if (byte != block_delimiter) {
+				if (byte == '\n' || byte == '\r' || byte == block_quote || (COMMENT && byte == block_comment)) {
+					break;
+				}
+				// a false candidate of the mask, data
+				candidates &= candidates - 1;
+				continue;
+			}
+			if (MULTI_BYTE_DELIMITER) {
+				const idx_t delimiter_bytes = DelimiterBytes(next, limit);
+				if (delimiter_bytes == 0) {
+					break;
+				}
+				ClearCandidates(candidates, pos, next, next + delimiter_bytes);
+				before_last = DelimiterPenultimateState();
+				last_delimiter = next + delimiter_bytes - 1;
+			} else {
+				candidates &= candidates - 1;
+				before_last = StateAfterData(CSVState::DELIMITER, last_delimiter + 1, next);
+				last_delimiter = next;
+			}
+			consumed++;
+		}
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[1] == CSVState::DELIMITER);
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[0] == before_last);
+		states.states[0] = before_last;
+		states.states[1] = CSVState::DELIMITER;
+		iterator.pos.buffer_pos = last_delimiter;
+		T::SkipValues(result, consumed, last_delimiter);
+		return last_delimiter + 1;
+	}
+
 	//! The row end at `at`, `before` is the state before it. Returns true when the result is full
 	template <class T>
 	bool BlockRowEnd(T &result, const idx_t at, const CSVState before, const bool crlf, uint64_t &candidates,
@@ -413,8 +471,10 @@ protected:
 
 	//! Scans unquoted fields and quoted values in their canonical form, and preserves the states when handing back
 	//! to Process. Returns true when the result is full. Repeated SetQuoted calls may be skipped because the setter
-	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, so dialects without them pay nothing for them
-	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT>
+	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, so dialects without them pay nothing for
+	//! them; SKIP_RUNS is set for scans with unprojected columns, so scans reading every column keep the plain
+	//! delimiter path
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool SKIP_RUNS>
 	DUCKDB_BLOCK_SCAN_ALIGNED bool ProcessBlocks(T &result, const idx_t to_pos) {
 		const auto buffer = buffer_handle_ptr;
 		// the first byte not consumed, and the first byte after the last structural or special byte
@@ -529,14 +589,27 @@ protected:
 						D_ASSERT(ReplayStates(last, at + delimiter_bytes).states[1] == CSVState::DELIMITER);
 						D_ASSERT(ReplayStates(last, at + delimiter_bytes).states[0] == DelimiterPenultimateState());
 						ClearCandidates(candidates, pos, at + 1, at + delimiter_bytes);
-						BlockDelimiter(result, at + delimiter_bytes - 1, DelimiterPenultimateState());
-						last = at + delimiter_bytes;
+						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
+						if (run > 0) {
+							last = BlockDelimiterRun<T, true, COMMENT>(result, at + delimiter_bytes - 1,
+							                                           DelimiterPenultimateState(), run, last,
+							                                           candidates, pos, limit);
+						} else {
+							BlockDelimiter(result, at + delimiter_bytes - 1, DelimiterPenultimateState());
+							last = at + delimiter_bytes;
+						}
 						continue;
 					}
 					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::DELIMITER);
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
-					BlockDelimiter(result, at, before);
-					last = at + 1;
+					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
+					if (run > 0) {
+						last =
+						    BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, last, candidates, pos, limit);
+					} else {
+						BlockDelimiter(result, at, before);
+						last = at + 1;
+					}
 					continue;
 				}
 				if (COMMENT && byte == block_comment) {
@@ -601,6 +674,17 @@ protected:
 		return false;
 	}
 
+	//! The block scan of the dialect, with or without the skipping of unprojected column runs
+	template <class T, bool SKIP_RUNS>
+	bool ProcessBlocksOfDialect(T &result, const idx_t to_pos) {
+		if (block_comment != '\0') {
+			return block_multi_byte_delimiter ? ProcessBlocks<T, true, true, SKIP_RUNS>(result, to_pos)
+			                                  : ProcessBlocks<T, false, true, SKIP_RUNS>(result, to_pos);
+		}
+		return block_multi_byte_delimiter ? ProcessBlocks<T, true, false, SKIP_RUNS>(result, to_pos)
+		                                  : ProcessBlocks<T, false, false, SKIP_RUNS>(result, to_pos);
+	}
+
 	//! Process one chunk
 	template <class T>
 	void Process(T &result) {
@@ -618,11 +702,8 @@ protected:
 		skipper.SetBuffer(*cur_buffer_handle);
 		while (iterator.pos.buffer_pos < to_pos) {
 			if (T::BLOCK_SCAN && block_scan && BlockScanPossible(result)) {
-				const bool full = block_comment != '\0'
-				                      ? (block_multi_byte_delimiter ? ProcessBlocks<T, true, true>(result, to_pos)
-				                                                    : ProcessBlocks<T, false, true>(result, to_pos))
-				                      : (block_multi_byte_delimiter ? ProcessBlocks<T, true, false>(result, to_pos)
-				                                                    : ProcessBlocks<T, false, false>(result, to_pos));
+				const bool full = T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, true>(result, to_pos)
+				                                       : ProcessBlocksOfDialect<T, false>(result, to_pos);
 				if (full) {
 					bytes_read = iterator.pos.buffer_pos - start_pos;
 					return;

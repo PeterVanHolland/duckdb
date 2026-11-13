@@ -98,6 +98,12 @@ StringValueResult::StringValueResult(CSVStates &states, CSVStateMachine &state_m
 					projected_columns[col_idx] = true;
 				}
 			}
+			unprojected_run = make_unsafe_uniq_array<idx_t>(number_of_columns);
+			idx_t run = 0;
+			for (idx_t col_idx = number_of_columns; col_idx > 0; col_idx--) {
+				run = projected_columns[col_idx - 1] ? 0 : run + 1;
+				unprojected_run[col_idx - 1] = run;
+			}
 		}
 		if (!projecting_columns) {
 			for (idx_t j = logical_types.size(); j < number_of_columns; j++) {
@@ -696,6 +702,14 @@ void StringValueResult::SkipValue(StringValueResult &result, const idx_t buffer_
 		return;
 	}
 	result.SkipValueInternal();
+	result.last_position.buffer_pos = buffer_pos + 1;
+}
+
+void StringValueResult::SkipValues(StringValueResult &result, const idx_t count, const idx_t buffer_pos) {
+	D_ASSERT(count > 0 && result.last_position.buffer_pos <= buffer_pos);
+	// the first value may close a quoted value, the ones after it are plain
+	result.SkipValueInternal();
+	result.cur_col_id += count - 1;
 	result.last_position.buffer_pos = buffer_pos + 1;
 }
 
