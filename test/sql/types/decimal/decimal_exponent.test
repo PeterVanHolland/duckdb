@@ -306,3 +306,21 @@ SELECT TRY_CAST('0.99995e1' AS DECIMAL(4,3)), TRY_CAST('0.099995e1' AS DECIMAL(4
 	TRY_CAST('-0.099995e1' AS DECIMAL(4,4))
 ----
 NULL	NULL	NULL
+
+# widths beyond 38 digits follow the same rules
+query IIIII
+SELECT '0.01e3'::DECIMAL(40,2), '-0.01e3'::DECIMAL(40,2), '843.09e1'::DECIMAL(40,0), '-843.09e1'::DECIMAL(40,0),
+	'843.049e1'::DECIMAL(40,0)
+----
+10.00	-10.00	8431	-8431	8430
+
+query III
+SELECT '0.00019e1'::DECIMAL(40,4), ('0.' || repeat('0', 50) || '12345e54')::DECIMAL(45,10),
+	('0.' || repeat('0', 254) || '1e255')::DECIMAL(40,2)
+----
+0.0019	1234.5000000000	1.00
+
+query II
+SELECT TRY_CAST(('0.' || repeat('9', 40) || '5e1') AS DECIMAL(40,39)), TRY_CAST('1e40' AS DECIMAL(40,0))
+----
+NULL	NULL
