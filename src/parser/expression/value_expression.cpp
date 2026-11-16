@@ -237,6 +237,15 @@ static unique_ptr<ParsedExpression> NestedValueExpression(const LogicalType &typ
 		auto result = ValueFunction("map", std::move(arguments));
 		return type.HasAlias() ? CastTo(type, std::move(result)) : std::move(result);
 	}
+	if (type.id() == LogicalTypeId::UNION && UnionType::GetMemberCount(type) == 1) {
+		auto &member_type = UnionType::GetMemberType(type, 0);
+		auto child = NestedValueExpression(member_type, value ? &UnionValue::GetValue(*value) : nullptr);
+		vector<FunctionArgument> arguments;
+		arguments.emplace_back(UnionType::GetMemberName(type, 0), std::move(child));
+		unique_ptr<ParsedExpression> result =
+		    make_uniq<FunctionExpression>(QualifiedName("system", "main", "union_value"), std::move(arguments));
+		return type.HasAlias() ? CastTo(type, std::move(result)) : std::move(result);
+	}
 	vector<FunctionArgument> arguments;
 	child_list_t<LogicalType> child_types;
 	optional_ptr<const vector<Value>> children;
@@ -359,7 +368,12 @@ unique_ptr<ParsedExpression> ConstantExpression::FromValue(const Value &value) {
 	case LogicalTypeId::UBIGINT:
 	case LogicalTypeId::UHUGEINT:
 	case LogicalTypeId::BIGNUM:
+		return LiteralOrCast(Literal::Number(value.ToString()), value);
 	case LogicalTypeId::DECIMAL:
+		// a literal with a fractional part re-binds to DOUBLE and loses precision, so cast the exact decimal string
+		if (value.type().InternalType() == PhysicalType::VARCHAR) {
+			return StringCast(value);
+		}
 		return LiteralOrCast(Literal::Number(value.ToString()), value);
 	case LogicalTypeId::BLOB: {
 		auto &bytes = StringValue::Get(value);
