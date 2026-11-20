@@ -1,0 +1,95 @@
+# name: test/sql/catalog/nested_schema/nested_view_function_search_path.test
+# description: Function qualifiers and USING KEY aggregate arguments of a view resolve with the search path of the view
+# group: [nested_schema]
+
+statement ok
+ATTACH ':memory:' AS lake;
+
+statement ok
+CREATE SCHEMA lake.q;
+
+statement ok
+CREATE MACRO lake.q.m() AS 1;
+
+statement ok
+CREATE VIEW lake.qv AS SELECT q.m() AS id;
+
+query I
+SELECT id FROM lake.qv;
+----
+1
+
+# an attached database named like the schema makes the qualifier ambiguous
+statement ok
+ATTACH ':memory:' AS q;
+
+statement ok
+CREATE MACRO q.main.m() AS 999;
+
+statement error
+SELECT id FROM lake.qv;
+----
+Ambiguous reference to catalog or schema "q"
+
+statement ok
+DETACH q;
+
+query I
+SELECT id FROM lake.qv;
+----
+1
+
+# a schema of the session's database does not make the qualifier of a view in another database ambiguous
+statement ok
+ATTACH ':memory:' AS p;
+
+statement ok
+CREATE MACRO p.main.m() AS 1;
+
+statement ok
+CREATE VIEW lake.pv AS SELECT p.m() AS id;
+
+statement ok
+CREATE SCHEMA memory.p;
+
+query I
+SELECT id FROM lake.pv;
+----
+1
+
+statement error
+SELECT p.m();
+----
+Ambiguous reference to catalog or schema "p"
+
+# the arguments of a USING KEY aggregate resolve with the search path of the view
+statement ok
+USE lake;
+
+statement ok
+CREATE SCHEMA s;
+
+statement ok
+CREATE MACRO s.twice(x) AS x * 2;
+
+statement ok
+CREATE VIEW kv AS WITH RECURSIVE r(k, v) USING KEY (k, max(s.twice(v)) AS v) AS (SELECT 1, 1 UNION SELECT 1, 2) SELECT v FROM r;
+
+statement ok
+USE memory;
+
+query I
+SELECT v FROM lake.kv;
+----
+4
+
+statement ok
+CREATE SCHEMA s;
+
+statement ok
+CREATE MACRO s.twice(x) AS x * 1000;
+
+query I
+SELECT v FROM lake.kv;
+----
+4

@@ -291,7 +291,7 @@ optional_ptr<CatalogEntry> ColumnQualifier::QualifyFunction(FunctionExpression &
 
 	// promote a lone qualifier that names an attached database to a catalog, so that "db.f()" is not mistaken for a
 	// dot-call on a column named "db" by the rewrite below
-	binder.BindSchemaOrCatalog(function.GetQualifiedNameMutable());
+	Binder::BindSchemaOrCatalog(binder.EntryRetriever(), function.GetQualifiedNameMutable());
 
 	// resolve the qualification: this decides whether a leading component (e.g. "s1" in "s1.s2.my_macro()") is a
 	// catalog or the outermost schema of a nested schema path. The name as written is left alone - the dot-call
