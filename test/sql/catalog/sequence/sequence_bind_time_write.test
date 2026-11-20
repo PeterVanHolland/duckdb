@@ -1,0 +1,63 @@
+# name: test/sql/catalog/sequence/sequence_bind_time_write.test
+# description: nextval and setval evaluated while a statement is bound register the write to their database
+# group: [sequence]
+
+statement ok
+ATTACH ':memory:' AS a
+
+statement ok
+ATTACH ':memory:' AS b
+
+statement ok
+CREATE SEQUENCE a.seq START 1
+
+statement error
+CREATE VIEW b.v AS SELECT * FROM range(nextval('a.seq'))
+----
+a single transaction can only write to a single attached database
+
+statement error
+CREATE VIEW b.v AS SELECT * FROM range(setval('a.seq', 5))
+----
+a single transaction can only write to a single attached database
+
+# a branch that is not taken writes nothing
+statement ok
+CREATE VIEW b.v_case AS SELECT * FROM range(CASE WHEN false THEN nextval('a.seq') ELSE 1 END)
+
+# a view that only calls nextval when it is queried writes nothing to the other database
+statement ok
+CREATE VIEW b.v_lazy AS SELECT nextval('a.seq') AS x
+
+statement ok
+CREATE VIEW a.v AS SELECT * FROM range(nextval('a.seq'))
+
+query II
+SELECT database_name, view_name FROM duckdb_views() WHERE NOT internal ORDER BY ALL
+----
+a	v
+b	v_case
+b	v_lazy
+
+# a sequence of a read-only database is not written either
+statement ok
+ATTACH '{TEST_DIR}/sequence_bind_time_write.db' AS ro
+
+statement ok
+CREATE SEQUENCE ro.seq START 1
+
+statement ok
+DETACH ro
+
+statement ok
+ATTACH '{TEST_DIR}/sequence_bind_time_write.db' AS ro (READ_ONLY)
+
+statement error
+CREATE TEMP VIEW v_ro AS SELECT * FROM range(nextval('ro.seq'))
+----
+Cannot execute "nextval" on database "ro" which is attached in read-only mode!
+
+statement error
+CREATE TEMP VIEW v_ro AS SELECT * FROM range(setval('ro.seq', 5))
+----
+Cannot execute "setval" on database "ro" which is attached in read-only mode!
