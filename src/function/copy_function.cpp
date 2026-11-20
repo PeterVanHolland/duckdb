@@ -136,11 +136,15 @@ bool CopyFunctionBatchAnalyzer::MeetsFlushCriteria() const {
 	return AnyBatchQualifies() || ExceedsBatchSize() || ExceedsBatchSizeBytes();
 }
 
+int64_t CopyFunctionBatchAnalyzer::SizeAsInt64(idx_t size) {
+	return NumericCast<int64_t>(MinValue<idx_t>(size, NumericLimits<int64_t>::Maximum()));
+}
+
 int64_t CopyFunctionBatchAnalyzer::BatchSizeVectorDiff() const {
 	if (!batch_size.IsValid()) {
 		return -1000000;
 	}
-	const auto batch_size_diff = NumericCast<int64_t>(current_batch_size) - NumericCast<int64_t>(batch_size.GetIndex());
+	const auto batch_size_diff = NumericCast<int64_t>(current_batch_size) - SizeAsInt64(batch_size.GetIndex());
 	return (batch_size_diff + STANDARD_VECTOR_SIZE - 1) / STANDARD_VECTOR_SIZE;
 }
 
@@ -149,7 +153,7 @@ int64_t CopyFunctionBatchAnalyzer::BatchSizeBytesVectorDiff() const {
 		return -1000000;
 	}
 	const auto size_bytes_diff =
-	    NumericCast<int64_t>(current_batch_size_bytes) - NumericCast<int64_t>(batch_size_bytes.GetIndex());
+	    NumericCast<int64_t>(current_batch_size_bytes) - SizeAsInt64(batch_size_bytes.GetIndex());
 	const auto bytes_per_tuple = NumericCast<int64_t>(current_batch_size_bytes / current_batch_size) + 1;
 	return (size_bytes_diff / bytes_per_tuple + STANDARD_VECTOR_SIZE - 1) / STANDARD_VECTOR_SIZE;
 }
