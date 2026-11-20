@@ -73,6 +73,7 @@ set(TEST_API_OBJECTS
     test_read_ahead_progress.cpp
     test_native_scan.cpp
     test_read_ahead_failure.cpp
+    test_read_blob_unknown_modified_time.cpp
     test_row_id_deduplicator.cpp
     test_dbdir.cpp
     test_detach_held_reference.cpp
