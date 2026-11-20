@@ -1,0 +1,59 @@
+# name: test/sql/parallelism/interquery/concurrent_scan_rolled_back_append.test
+# description: Scans while commits that fail on a primary key revert the rows they appended, shrinking the last row group
+# group: [interquery]
+
+statement ok
+CREATE TABLE keys(k INTEGER PRIMARY KEY)
+
+# two full row groups and a third one of 100000 rows, which the reverted appends grow and shrink
+statement ok
+CREATE TABLE d AS SELECT range AS i FROM range(345760)
+
+concurrentloop threadid 0 8
+
+loop i 0 200
+
+# two writers commit the same key, the second commit fails on the primary key and reverts its appends to d
+onlyif threadid<=1
+statement ok
+BEGIN
+
+onlyif threadid<=1
+statement maybe
+INSERT INTO keys VALUES ({i})
+----
+Constraint Error
+
+onlyif threadid<=1
+statement maybe
+INSERT INTO d SELECT range FROM range(20000)
+----
+TransactionContext Error
+
+onlyif threadid<=1
+statement maybe
+COMMIT
+----
+constraint violation
+
+onlyif threadid<=1
+statement maybe
+ROLLBACK
+----
+TransactionContext Error
+
+# every committed batch adds 20000 rows with the sum 199990000
+skipif threadid<=1
+query I
+SELECT (count(*) - 345760) % 20000 = 0 AND sum(i) = 59774815920 + 199990000 * ((count(*) - 345760) // 20000) FROM d
+----
+true
+
+endloop
+
+endloop
+
+query I
+SELECT count(*) FROM keys
+----
+200

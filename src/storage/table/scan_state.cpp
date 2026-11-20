@@ -341,8 +341,7 @@ bool CollectionScanState::PrepareScanIO(DuckTransaction &transaction, vector<uni
 	auto &current_row_group = *pinned_row_group;
 	ScanOptions options {TransactionData(transaction)};
 	if (!current_row_group.PrepareScan(options, *this)) {
-		// the assignment is exhausted
-		D_ASSERT(max_row <= row_group->GetRowStart() + current_row_group.count);
+		// the assignment is exhausted, or a reverted append ended the row group before it
 		SetRowGroup(nullptr);
 		return false;
 	}
@@ -395,7 +394,9 @@ void TableScanState::ReleasePins() {
 
 idx_t CollectionScanState::RemainingAssignmentRows() const {
 	const idx_t current_row = vector_index * STANDARD_VECTOR_SIZE;
-	return current_row < max_row_group_row ? max_row_group_row - current_row : 0;
+	// a commit that failed after appending reverts its rows, so the row group can end before the assignment does
+	const idx_t end_row = MinValue<idx_t>(max_row_group_row, pinned_row_group->count);
+	return current_row < end_row ? end_row - current_row : 0;
 }
 
 void CollectionScanState::ProcessPreparedScan(DuckTransaction &transaction, DataChunk &result) {
