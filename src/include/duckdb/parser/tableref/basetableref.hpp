@@ -15,6 +15,8 @@
 
 namespace duckdb {
 
+class Catalog;
+
 //! Represents a TableReference to a base table in a catalog and schema.
 class BaseTableRef : public TableRef {
 public:
@@ -29,6 +31,8 @@ public:
 
 	//! The timestamp/version at which to read this table entry (if any)
 	unique_ptr<AtClause> at_clause;
+	//! The catalog of the view whose stored query holds this reference without the catalog name (if any)
+	optional_ptr<Catalog> view_catalog;
 
 public:
 	const QualifiedName &GetQualifiedName() const {
