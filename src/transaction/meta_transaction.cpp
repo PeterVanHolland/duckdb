@@ -64,6 +64,10 @@ Transaction &MetaTransaction::GetTransaction(AttachedDatabase &db) {
 	lock_guard<mutex> guard(lock);
 	auto entry = transactions.find(db);
 	if (entry == transactions.end()) {
+		// keep the database alive before starting a transaction in it - this throws if another database used its
+		// name in this transaction, and a transaction started before would outlive its database
+		auto shared_db = db.shared_from_this();
+		UseDatabase(shared_db);
 		auto &new_transaction = db.GetTransactionManager().StartTransaction(context);
 		new_transaction.active_query = active_query.load();
 #ifdef DEBUG
@@ -75,8 +79,6 @@ Transaction &MetaTransaction::GetTransaction(AttachedDatabase &db) {
 		all_transactions.reserve(all_transactions.size() + 1);
 		transactions.insert(make_pair(reference<AttachedDatabase>(db), TransactionReference(new_transaction)));
 		all_transactions.push_back(db);
-		auto shared_db = db.shared_from_this();
-		UseDatabase(shared_db);
 
 		return new_transaction;
 	} else {

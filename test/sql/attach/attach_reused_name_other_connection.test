@@ -1,0 +1,35 @@
+# name: test/sql/attach/attach_reused_name_other_connection.test
+# description: A transaction that finds its database name used by a database attached by another connection
+# group: [attach]
+
+statement ok con2
+ATTACH ':memory:' AS db1
+
+statement ok con1
+BEGIN
+
+statement ok con1
+SELECT * FROM duckdb_schemas()
+
+statement ok con2
+DETACH db1
+
+statement ok con2
+ATTACH ':memory:' AS db1
+
+# the new db1 is not used in the transaction, which keeps no transaction in it
+statement error con1
+SELECT * FROM duckdb_schemas()
+----
+already used by a different database
+
+statement ok con2
+DETACH db1
+
+statement ok con1
+ROLLBACK
+
+query I con1
+SELECT count(*) > 0 FROM duckdb_schemas()
+----
+true
