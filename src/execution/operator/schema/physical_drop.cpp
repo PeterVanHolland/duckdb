@@ -6,7 +6,6 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/catalog/catalog_search_path.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
-#include "duckdb/main/settings.hpp"
 #include "duckdb/parser/parsed_data/extra_drop_info.hpp"
 #include "duckdb/parser/tableref/basetableref.hpp"
 
@@ -46,8 +45,16 @@ SourceResultType PhysicalDrop::GetDataInternal(ExecutionContext &context, DataCh
 		    IsInvalidCatalog(current_catalog) ? DatabaseManager::GetDefaultDatabase(context.client) : current_catalog;
 		if (catalog.GetName() == resolved_current_catalog && dropped_schema.size() - 1 <= current_schema.size() &&
 		    std::equal(dropped_schema.begin() + 1, dropped_schema.end(), current_schema.begin())) {
-			// Reset the default when dropping its schema or an ancestor.
-			SchemaSetting::SetLocal(context.client, DEFAULT_SCHEMA);
+			// Reset the default to the default schema of the catalog, which may be the dropped one.
+			auto &search_path = *client_data.catalog_search_path;
+			auto default_schema = catalog.GetDefaultSchema();
+			if (default_schema) {
+				search_path.Set(CatalogSearchEntry(catalog.GetName(), *default_schema),
+				                CatalogSetPathType::SET_DIRECTLY);
+			} else {
+				// A catalog without a default schema cannot stay the default.
+				search_path.Reset();
+			}
 		}
 		break;
 	}
