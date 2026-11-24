@@ -394,7 +394,7 @@ static bool IsInvalidMapKeyDefault(const ColumnMapResult &mapping) {
 	return constant_expr.GetValue().IsNull();
 }
 
-//! The definition whose children are the key and the value of a MAP, either the column or its "key_value" child
+//! The definition whose children are the key and the value of a MAP, either the column or its repeated group child
 template <class T>
 static T &GetMapEntries(T &map_column) {
 	return map_column.children.size() == 1 ? map_column.children[0] : map_column;
