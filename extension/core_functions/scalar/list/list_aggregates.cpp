@@ -1,10 +1,11 @@
+#include "duckdb/main/context.hpp"
 #include "core_functions/aggregate/nested_functions.hpp"
 #include "core_functions/scalar/list_functions.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/aggregate_function_catalog_entry.hpp"
 #include "duckdb/common/owning_string_map.hpp"
 #include "duckdb/common/smaller_binary.hpp"
-#include "duckdb/common/types/sql_value_map.hpp"
+#include "duckdb/common/arena_containers/arena_sql_value_map.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/function/create_sort_key.hpp"
 #include "duckdb/function/function_binder.hpp"
@@ -13,23 +14,13 @@
 #include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/planner/expression_binder.hpp"
 
 namespace duckdb {
 
 namespace {
 
-struct ListAggregatesLocalState : public FunctionLocalState {
-	explicit ListAggregatesLocalState(Allocator &allocator) : arena_allocator(allocator) {
-	}
-
-	ArenaAllocator arena_allocator;
-};
-
-unique_ptr<FunctionLocalState> ListAggregatesInitLocalState(ExpressionState &state, const BoundFunctionExpression &expr,
-                                                            FunctionData *bind_data) {
-	return make_uniq<ListAggregatesLocalState>(BufferAllocator::Get(state.GetContext()));
-}
 // FIXME: benchmark the use of cluster_update against using update (if applicable)
 
 unique_ptr<FunctionData> ListAggregatesBindFailure(BoundScalarFunction &bound_function) {
@@ -66,7 +57,7 @@ struct ListAggregatesBindData : public FunctionData {
 		return result;
 	}
 
-	static void SerializeFunction(Serializer &serializer, const optional_ptr<FunctionData> bind_data_p,
+	static void SerializeFunction(Serializer &serializer, const optional_ptr<const FunctionData> bind_data_p,
 	                              const BoundScalarFunction &function) {
 		const ListAggregatesBindData *bind_data = nullptr;
 		if (bind_data_p) {
@@ -91,6 +82,36 @@ ListAggregatesBindData::ListAggregatesBindData(const LogicalType &stype_p, uniqu
 }
 
 ListAggregatesBindData::~ListAggregatesBindData() {
+}
+
+struct ListAggregatesLocalState : public FunctionLocalState {
+	ListAggregatesLocalState(Context &context, optional_ptr<const FunctionData> bind_data)
+	    : arena_allocator(BufferAllocator::Get(context)) {
+		if (!bind_data) {
+			return;
+		}
+		// arguments that the bind of the aggregate derived from its input (e.g. a collation of the compared value) are
+		// evaluated over the list elements
+		auto &aggr = bind_data->Cast<ListAggregatesBindData>().aggr_expr->Cast<BoundAggregateExpression>();
+		auto &children = aggr.GetChildren();
+		for (idx_t child_idx = 1; child_idx < children.size(); child_idx++) {
+			if (children[child_idx]->GetExpressionClass() == ExpressionClass::BOUND_CONSTANT) {
+				continue;
+			}
+			if (!derived_executor) {
+				derived_executor = make_uniq<ExpressionExecutor>(context);
+			}
+			derived_executor->AddExpression(*children[child_idx]);
+		}
+	}
+
+	ArenaAllocator arena_allocator;
+	unique_ptr<ExpressionExecutor> derived_executor;
+};
+
+unique_ptr<FunctionLocalState> ListAggregatesInitLocalState(ExpressionState &state, const BoundFunctionExpression &expr,
+                                                            optional_ptr<const FunctionData> bind_data) {
+	return make_uniq<ListAggregatesLocalState>(state.GetContext(), bind_data);
 }
 
 struct StateVector {
@@ -139,13 +160,13 @@ struct FinalizeGenericValueFunctor {
 };
 
 struct AggregateFunctor {
-	template <class OP, class T, class MAP_TYPE = sql_value_map_t<T, idx_t>>
+	template <class OP, class T, class MAP_TYPE = arena_sql_value_map_t<T, idx_t>>
 	static void ListExecuteFunction(Vector &result, const Vector &state_vector, idx_t count) {
 	}
 };
 
 struct DistinctFunctor {
-	template <class OP, class T, class MAP_TYPE = sql_value_map_t<T, idx_t>>
+	template <class OP, class T, class MAP_TYPE = arena_sql_value_map_t<T, idx_t>>
 	static void ListExecuteFunction(Vector &result, const Vector &state_vector, idx_t count) {
 		UnifiedVectorFormat sdata;
 		state_vector.ToUnifiedFormat(sdata);
@@ -188,7 +209,7 @@ struct DistinctFunctor {
 };
 
 struct UniqueFunctor {
-	template <class OP, class T, class MAP_TYPE = sql_value_map_t<T, idx_t>>
+	template <class OP, class T, class MAP_TYPE = arena_sql_value_map_t<T, idx_t>>
 	static void ListExecuteFunction(Vector &result, const Vector &state_vector, idx_t count) {
 		UnifiedVectorFormat sdata;
 		state_vector.ToUnifiedFormat(sdata);
@@ -226,7 +247,8 @@ void ListAggregatesFunction(DataChunk &args, ExpressionState &state, Vector &res
 	auto &func_expr = state.expr.Cast<BoundFunctionExpression>();
 	auto &info = func_expr.BindInfo()->Cast<ListAggregatesBindData>();
 	auto &aggr = info.aggr_expr->Cast<BoundAggregateExpression>();
-	auto &allocator = ExecuteFunctionState::GetFunctionState(state)->Cast<ListAggregatesLocalState>().arena_allocator;
+	auto &local_state = ExecuteFunctionState::GetFunctionState(state)->Cast<ListAggregatesLocalState>();
+	auto &allocator = local_state.arena_allocator;
 	allocator.Reset();
 	AggregateFinalizeInputData aggr_input_data(aggr, allocator);
 
@@ -260,12 +282,34 @@ void ListAggregatesFunction(DataChunk &args, ExpressionState &state, Vector &res
 
 	// the aggregate's trailing arguments (e.g. the separator of string_agg) are constants that its bind folded into
 	// the bind data - they are still part of its argument list, so they are passed along as constant vectors
+	DataChunk derived_input;
+	DataChunk derived_result;
+	if (local_state.derived_executor) {
+		derived_input.InitializeEmpty({child_vector.GetType()});
+		vector<LogicalType> derived_types;
+		for (auto &derived_expr : local_state.derived_executor->expressions) {
+			derived_types.push_back(derived_expr->GetReturnType());
+		}
+		derived_result.Initialize(Allocator::DefaultAllocator(), derived_types);
+	}
 	auto update_states = [&](idx_t update_count) {
 		vector<Vector> inputs;
 		inputs.reserve(aggr.GetChildren().size());
 		inputs.emplace_back(child_vector, sel_vector, update_count);
+		if (local_state.derived_executor) {
+			derived_input.data[0].Slice(child_vector, sel_vector, update_count);
+			derived_input.SetChildCardinality(update_count);
+			derived_result.Reset();
+			local_state.derived_executor->Execute(derived_input, derived_result);
+		}
+		idx_t derived_idx = 0;
 		for (idx_t child_idx = 1; child_idx < aggr.GetChildren().size(); child_idx++) {
-			auto &constant = aggr.GetChildren()[child_idx]->Cast<BoundConstantExpression>().GetValue();
+			auto &child = *aggr.GetChildren()[child_idx];
+			if (child.GetExpressionClass() != ExpressionClass::BOUND_CONSTANT) {
+				inputs.emplace_back(Vector::Ref(derived_result.data[derived_idx++]));
+				continue;
+			}
+			auto &constant = child.Cast<BoundConstantExpression>().GetValue();
 			inputs.emplace_back(constant, count_t(update_count));
 		}
 		aggr.Function().GetStateUpdateCallback()(inputs.data(), aggr_input_data, inputs.size(), state_vector_update,
@@ -373,14 +417,14 @@ void ListAggregatesFunction(DataChunk &args, ExpressionState &state, Vector &res
 			break;
 		case PhysicalType::VARCHAR:
 			FUNCTION_FUNCTOR::template ListExecuteFunction<FinalizeStringValueFunctor, string_t,
-			                                               OwningStringMap<idx_t>>(result, state_vector.state_vector,
-			                                                                       count);
+			                                               ArenaOwningStringMap<idx_t>>(
+			    result, state_vector.state_vector, count);
 			break;
 #endif
 		default:
 			FUNCTION_FUNCTOR::template ListExecuteFunction<FinalizeGenericValueFunctor, string_t,
-			                                               OwningStringMap<idx_t>>(result, state_vector.state_vector,
-			                                                                       count);
+			                                               ArenaOwningStringMap<idx_t>>(
+			    result, state_vector.state_vector, count);
 			break;
 		}
 	}
@@ -411,42 +455,29 @@ AggregateFunctionCatalogEntry &GetListAggregateEntry(ClientContext &context, con
 
 //! Binds the aggregate that is applied to the elements of the list
 template <bool IS_AGGR>
-unique_ptr<BoundAggregateExpression> BindListAggregate(ClientContext &context, LogicalType child_type,
+unique_ptr<BoundAggregateExpression> BindListAggregate(FunctionBinder &function_binder, LogicalType child_type,
                                                        const string &function_name,
                                                        vector<unique_ptr<Expression>> extra_arguments) {
-	auto &func = GetListAggregateEntry(context, function_name);
+	auto &func = GetListAggregateEntry(function_binder.context, function_name);
 
-	// find a matching aggregate function
-	ErrorData error;
-	vector<LogicalType> types;
-	types.push_back(child_type);
-	// push any extra arguments into the type list
-	for (auto &argument : extra_arguments) {
-		types.push_back(argument->GetReturnType());
-	}
-
-	FunctionBinder function_binder(context);
-	auto best_function_idx = function_binder.BindFunction(func.name, func.functions, types, error);
-	if (!best_function_idx.IsValid()) {
-		throw BinderException("No matching aggregate function\n%s", error.Message());
-	}
-
-	// create the child expression and its type
+	// the child expression refers to the list elements
 	vector<unique_ptr<Expression>> children;
-	children.push_back(make_uniq<BoundConstantExpression>(Value(child_type)));
+	children.push_back(make_uniq<BoundReferenceExpression>(child_type, idx_t(0)));
 	for (auto &argument : extra_arguments) {
 		children.push_back(std::move(argument));
 	}
 
-	// found a matching function, bind it as an aggregate
-	const auto &best_function = *func.functions.GetFunctionByOffset(best_function_idx.GetIndex());
-	if (IS_AGGR) {
-		return function_binder.BindAggregateFunction(best_function, std::move(children));
+	if (!IS_AGGR) {
+		// the histogram is computed as an unordered map, which takes any type
+		return function_binder.BindAggregateFunction(HistogramFun::GetHistogramUnorderedMap(child_type),
+		                                             std::move(children));
 	}
-	// create the unordered map histogram function
-	D_ASSERT(best_function.GetSignature().GetParameterCount() == 1);
-	auto aggr_function = HistogramFun::GetHistogramUnorderedMap(child_type);
-	return function_binder.BindAggregateFunction(aggr_function, std::move(children));
+	ErrorData error;
+	auto result = function_binder.BindAggregateFunction(func, std::move(children), error);
+	if (!result) {
+		throw BinderException("No matching aggregate function\n%s", error.Message());
+	}
+	return result;
 }
 
 template <bool IS_AGGR = false>
@@ -479,8 +510,9 @@ void ListAggregatesResolveTypes(ResolveScalarFunctionTypesInput &input) {
 	for (idx_t i = 2; i < input.GetArgumentCount(); i++) {
 		extra_arguments.push_back(input.GetArgument(i).Copy());
 	}
-	auto bound_aggr_function = BindListAggregate<IS_AGGR>(context, ListType::GetChildType(list_type), function_name,
-	                                                      std::move(extra_arguments));
+	auto function_binder = input.NestedFunctionBinder();
+	auto bound_aggr_function = BindListAggregate<IS_AGGR>(function_binder, ListType::GetChildType(list_type),
+	                                                      function_name, std::move(extra_arguments));
 
 	bound_function.GetArguments()[0] = LogicalType::LIST(bound_aggr_function->Function().GetArguments()[0]);
 	if (IS_AGGR) {
@@ -508,17 +540,20 @@ unique_ptr<FunctionData> ListAggregatesBind(BindScalarFunctionInput &input) {
 	for (idx_t i = 2; i < arguments.size(); i++) {
 		extra_arguments.push_back(std::move(arguments[i]));
 	}
+	const idx_t extra_argument_count = extra_arguments.size();
 	if (arguments.size() > 2) {
 		arguments.resize(2);
 	}
 	auto function_name = IS_AGGR ? input.GetConstant(1).ToString() : string("histogram");
 	auto child_type = ListType::GetChildType(arguments[0]->GetReturnType());
+	auto function_binder = input.NestedFunctionBinder();
 	auto bound_aggr_function =
-	    BindListAggregate<IS_AGGR>(context, child_type, function_name, std::move(extra_arguments));
+	    BindListAggregate<IS_AGGR>(function_binder, child_type, function_name, std::move(extra_arguments));
 
-	// the extra arguments are passed to the aggregate as constant vectors, so they have to be constant
+	// the extra arguments are passed to the aggregate as constant vectors, so they have to be constant - arguments
+	// that the bind of the aggregate added after them are derived from the list elements
 	auto &aggr_children = bound_aggr_function->GetChildrenMutable();
-	for (idx_t child_idx = 1; child_idx < aggr_children.size(); child_idx++) {
+	for (idx_t child_idx = 1; child_idx < aggr_children.size() && child_idx <= extra_argument_count; child_idx++) {
 		auto &child = aggr_children[child_idx];
 		if (!child->IsFoldable()) {
 			throw InvalidInputException(
@@ -529,8 +564,8 @@ unique_ptr<FunctionData> ListAggregatesBind(BindScalarFunctionInput &input) {
 	}
 
 	// Preserve folded SQL arguments without evaluating them again.
-	if (aggr_children.size() + 1 == bound_function.GetLogicalArguments().size()) {
-		for (idx_t child_idx = 1; child_idx < aggr_children.size(); child_idx++) {
+	if (extra_argument_count + 2 == bound_function.GetLogicalArguments().size()) {
+		for (idx_t child_idx = 1; child_idx <= extra_argument_count && child_idx < aggr_children.size(); child_idx++) {
 			arguments.push_back(aggr_children[child_idx]->Copy());
 		}
 	}

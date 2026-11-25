@@ -8,10 +8,6 @@
 
 namespace duckdb {
 
-void OpenerFileSystem::RegisterCompressionFilesystem(unique_ptr<CompressedFileSystem> fs) {
-	GetFileSystem().RegisterCompressionFilesystem(std::move(fs));
-}
-
 unique_ptr<MemoryMappedFile> OpenerFileSystem::MemoryMapFile(const OpenFileInfo &path, FileOpenFlags flags,
                                                              const MMapOptions &options,
                                                              optional_ptr<FileOpener> opener) {
@@ -20,14 +16,14 @@ unique_ptr<MemoryMappedFile> OpenerFileSystem::MemoryMapFile(const OpenFileInfo 
 	if (IsDuckDBExtensionName(path.path)) {
 		VerifyCanAccessExtension(path.path, flags);
 	}
-	return GetFileSystem().MemoryMapFile(path, flags, options, GetOpener());
+	return FindFileSystem(path.path).MemoryMapFile(path, flags, options, GetOpener());
 }
 
 unique_ptr<MultiFileList> OpenerFileSystem::GlobFilesExtended(const string &path, const FileGlobInput &input,
                                                               optional_ptr<FileOpener> opener) {
 	VerifyNoOpener(opener);
 	VerifyCanAccessFile(path);
-	return GetFileSystem().Glob(path, input, GetOpener());
+	return FindFileSystem(path).Glob(path, input, GetOpener());
 }
 
 void OpenerFileSystem::VerifyNoOpener(optional_ptr<FileOpener> opener) {
@@ -45,8 +41,7 @@ void OpenerFileSystem::VerifyCanAccessFileInternal(const string &path, FileType 
 		return;
 	}
 	auto &config = db->config;
-	auto canonical_path = config.file_system->CanonicalizePath(path, opener);
-	if (!config.CanAccessFile(canonical_path, type)) {
+	if (!config.CanAccessFile(path, type, opener)) {
 		throw PermissionException("Cannot access %s \"%s\" - file system operations are disabled by configuration",
 		                          type == FileType::FILE_TYPE_DIR ? "directory" : "file", path);
 	}

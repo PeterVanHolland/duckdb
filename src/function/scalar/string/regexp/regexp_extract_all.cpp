@@ -16,8 +16,9 @@ using regexp_util::CreateStringPiece;
 using regexp_util::ParseRegexOptions;
 using regexp_util::TryParseConstantPattern;
 
-unique_ptr<FunctionLocalState>
-RegexpExtractAll::InitLocalState(ExpressionState &state, const BoundFunctionExpression &expr, FunctionData *bind_data) {
+unique_ptr<FunctionLocalState> RegexpExtractAll::InitLocalState(ExpressionState &state,
+                                                                const BoundFunctionExpression &expr,
+                                                                optional_ptr<const FunctionData> bind_data) {
 	auto &info = bind_data->Cast<RegexpBaseBindData>();
 	if (info.constant_pattern) {
 		return make_uniq<RegexLocalState>(info, true);
@@ -27,7 +28,7 @@ RegexpExtractAll::InitLocalState(ExpressionState &state, const BoundFunctionExpr
 
 unique_ptr<FunctionLocalState> RegexpExtractAllStruct::InitLocalState(ExpressionState &state,
                                                                       const BoundFunctionExpression &expr,
-                                                                      FunctionData *bind_data) {
+                                                                      optional_ptr<const FunctionData> bind_data) {
 	auto &info = bind_data->Cast<RegexpExtractAllStructBindData>();
 	if (info.constant_pattern) {
 		return make_uniq<RegexLocalState>(info, true);
@@ -44,12 +45,11 @@ bool ExtractAll(duckdb_re2::StringPiece &input, duckdb_re2::RE2 &pattern, idx_t 
 	if (!pattern.Match(input, *startpos, input.size(), pattern.UNANCHORED, groups, ngroups + 1)) {
 		return false;
 	}
-	idx_t consumed = static_cast<size_t>(groups[0].end() - (input.begin() + *startpos));
-	if (!consumed) {
-		// Empty match: advance exactly one UTF-8 codepoint
-		consumed = regexp_util::AdvanceOneUTF8Basic(input, *startpos);
+	*startpos = static_cast<idx_t>(groups[0].end() - input.begin());
+	if (groups[0].empty()) {
+		// Empty match: advance exactly one UTF-8 codepoint past it
+		*startpos += regexp_util::AdvanceOneUTF8Basic(input, *startpos);
 	}
-	*startpos += consumed;
 	return true;
 }
 
@@ -189,11 +189,10 @@ static inline bool ExtractAllStruct(duckdb_re2::StringPiece &input, duckdb_re2::
 	if (!re.Match(input, startpos, input.size(), re.UNANCHORED, groups, provided_groups + 1)) {
 		return false;
 	}
-	idx_t consumed = static_cast<idx_t>(groups[0].end() - (input.begin() + startpos));
-	if (!consumed) {
-		consumed = regexp_util::AdvanceOneUTF8Basic(input, startpos);
+	startpos = static_cast<idx_t>(groups[0].end() - input.begin());
+	if (groups[0].empty()) {
+		startpos += regexp_util::AdvanceOneUTF8Basic(input, startpos);
 	}
-	startpos += consumed;
 	return true;
 }
 

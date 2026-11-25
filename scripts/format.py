@@ -212,12 +212,18 @@ def run_typos_check():
     typos_command = ['typos', '--force-exclude']
     if not check_only:
         typos_command.append('-w')
-    typos_command += ['-c', 'scripts/typos.toml'] + typos_targets
+    typos_command += ['-c', 'scripts/typos.toml']
+    # check the files in chunks to bound the memory usage of a single typos process
+    typos_chunk_size = 500
+    status = 0
     try:
-        return subprocess.call(typos_command)
+        for start in range(0, len(typos_targets), typos_chunk_size):
+            chunk_status = subprocess.call(typos_command + typos_targets[start : start + typos_chunk_size])
+            status = status or chunk_status
     except FileNotFoundError:
         print('typos not found. Install it with "brew install typos-cli"')
         return 1
+    return status
 
 
 def file_is_ignored(full_path):
@@ -442,12 +448,8 @@ def format_file(f, full_path, directory, ext):
     old_lines = old_text.split('\n')
 
     new_text = get_formatted_text(f, full_path, directory, ext)
-    if ext in ('.cpp', '.hpp'):
-        new_text = new_text.replace('ARGS &&...args', 'ARGS &&... args')
     if check_only:
         new_lines = new_text.split('\n')
-        old_lines = [x for x in old_lines if '...' not in x]
-        new_lines = [x for x in new_lines if '...' not in x]
         diff_result = difflib.unified_diff(old_lines, new_lines)
         total_diff = ""
         for diff_line in diff_result:

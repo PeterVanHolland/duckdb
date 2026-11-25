@@ -54,6 +54,10 @@ public:
 		if (Tokenizer::CharacterIsInitialNumber(text[0])) {
 			return false;
 		}
+		if (text.back() == '\'') {
+			// a prefixed string literal such as x'41' or e'ab'
+			return false;
+		}
 		return Tokenizer::CharacterIsKeyword(text[0]);
 	}
 
@@ -157,8 +161,18 @@ public:
 		}
 	}
 
+	//! Non-keyword words, string literals where those stand for names, and the keywords the mask allows
 	void InitializeFirstSet(MatcherFirstSet &first_set, const GrammarLiteralTable &table) const override {
-		first_set.class_mask = MatcherTokenClass::WORD;
+		first_set.class_mask = MatcherTokenClass::IDENTIFIER;
+		if (SupportsStringLiteral()) {
+			first_set.class_mask |= MatcherTokenClass::STRING;
+		}
+		table.ForEachLiteral([&](const LiteralInfo &info) {
+			if (info.IsKeyword() && info.HasAnyFlags(identifier_mask)) {
+				first_set.AddLiteral(info.LiteralId());
+			}
+		});
+		first_set.SetSingleToken();
 	}
 
 private:
@@ -219,6 +233,14 @@ public:
 			state.FoldIdentifier(result_text);
 		}
 		return state.AllocateParseResult<IdentifierParseResult>(result_text, start_offset, token_length);
+	}
+
+	void InitializeFirstSet(MatcherFirstSet &first_set, const GrammarLiteralTable &table) const override {
+		first_set.class_mask = MatcherTokenClass::WORD;
+		if (SupportsStringLiteral()) {
+			first_set.class_mask |= MatcherTokenClass::STRING;
+		}
+		first_set.SetSingleToken();
 	}
 
 private:

@@ -11,6 +11,7 @@
 #include "duckdb/common/atomic.hpp"
 #include "duckdb/common/multi_file/multi_file_function.hpp"
 #include "duckdb/common/mutex.hpp"
+#include "duckdb/common/once_flag.hpp"
 
 namespace duckdb {
 
@@ -84,10 +85,11 @@ struct TableFunctionFileInitInput {
 	//! (Optional) The virtual columns among the column indexes, as a map of the index they are projected in to the
 	//! virtual column id wanted there. A virtual column gets an index of its own, past the columns the function bound
 	optional_ptr<const unordered_map<column_t, column_t>> virtual_columns;
-	//! The index of the file this function reads within the scan, and the number of files the scan reads in total.
+	//! The index of the file this function reads within the scan.
 	//! TableFunctionInitInput::op is the operator all those files are read for
 	optional_idx file_index;
-	idx_t file_count = 1;
+	//! (Optional) The scan's file list. Use GetFileCount for a bounded count without expanding every file
+	optional_ptr<const MultiFileList> file_list;
 
 	//! The multi-file input of an initialization - an empty one when the function is not read as part of a
 	//! multi-file scan
@@ -115,6 +117,9 @@ struct TableFunctionCombineSchemaInput {
 //! A function that implements this is scanned one batch at a time, rather than being run until it returns an empty
 //! chunk. This lets the scan tell the batches apart, so that batches scanned in parallel can be put back in order
 typedef bool (*table_function_claim_batch_t)(ClientContext &context, TableFunctionInput &input);
+//! Prepares the batch a local state has just claimed - called without the lock of the scan held, so that preparing
+//! batches is done in parallel. Only meaningful together with table_function_claim_batch_t
+typedef void (*table_function_prepare_batch_t)(ClientContext &context, TableFunctionInput &input);
 //! Called when a local state will not scan any more batches - lets the function release the resources of the batch
 //! it scanned last. The counterpart of table_function_claim_batch_t
 typedef void (*table_function_finish_batch_t)(ClientContext &context, TableFunctionInput &input);
@@ -156,7 +161,7 @@ public:
 //! Bind data of a multi-file function that wraps a single-file table function
 struct TableFunctionMultiFileData : public TableFunctionData {
 	TableFunctionFileReaderOptions options;
-	//! The per-file cardinality estimate, kept when the readers used to combine the schemas are released
+	//! The cardinality estimate of the first file, kept here because its reader can be released or pruned
 	optional_idx cardinality;
 
 	//! Whether the schema every file is read with is known upfront - because it was combined from several files,
@@ -189,6 +194,7 @@ struct TableFunctionMultiFileSettings {
 
 	//! How the wrapped function takes part in the scan - all optional, see the typedefs above
 	table_function_claim_batch_t claim_batch = nullptr;
+	table_function_prepare_batch_t prepare_batch = nullptr;
 	table_function_finish_batch_t finish_batch = nullptr;
 	table_function_supports_read_ahead_t supports_read_ahead = nullptr;
 	table_function_schedule_io_t schedule_io = nullptr;
@@ -203,6 +209,8 @@ struct TableFunctionMultiFileSettings {
 	//! TableFunctionFileInitInput::cast_map. The function then reports the schema of its own file, and still
 	//! produces the types of the scan
 	bool supports_cast_map = false;
+	//! Whether the function counts the bytes it scans, reported as operator.bytes_scanned of the scan
+	bool reports_bytes_scanned = false;
 };
 
 //! The function info of a multi-file wrapper - holds the single-file function that is wrapped
@@ -226,12 +234,13 @@ public:
 	//! kept afterwards so that the bind that reads the file can reuse what this one read from it
 	shared_ptr<FunctionData> bind_data;
 	//! The statistics callback of the wrapped function, which reads the statistics of this file from its bind data
-	table_statistics_t statistics = nullptr;
+	table_statistics_extended_t statistics = nullptr;
 
 	optional_idx TryGetCardinalityEstimate() const override {
 		return cardinality;
 	}
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, const Identifier &name) override;
+	unique_ptr<BaseStatistics> GetVirtualColumnStatistics(ClientContext &context, column_t virtual_column_id) override;
 };
 
 //! Reads a single file by binding and executing the wrapped table function over that file
@@ -253,6 +262,8 @@ public:
 	void FinishFile(ClientContext &context, GlobalTableFunctionState &gstate) override;
 	bool TryInitializeScan(ClientContext &context, GlobalTableFunctionState &gstate,
 	                       LocalTableFunctionState &lstate) override;
+	void PrepareScan(ClientContext &context, GlobalTableFunctionState &gstate,
+	                 LocalTableFunctionState &lstate) override;
 	AsyncResult ScheduleIO(ClientContext &context, GlobalTableFunctionState &gstate,
 	                       LocalTableFunctionState &lstate) override;
 	AsyncResult Scan(ClientContext &context, GlobalTableFunctionState &gstate, LocalTableFunctionState &lstate,
@@ -292,9 +303,9 @@ public:
 	unordered_map<column_t, column_t> virtual_columns;
 	//! The key-value metadata the wrapped function reported for this file
 	InsertionOrderPreservingMap<Value> metadata;
-	//! The operator this file is scanned for, and the number of files that scan reads
+	//! The operator and file list of the scan this file is read for
 	optional_ptr<const PhysicalOperator> scan_op;
-	idx_t scan_file_count = 1;
+	optional_ptr<const MultiFileList> scan_file_list;
 
 public:
 	//! The state of the wrapped function for this file, if it has been initialized
@@ -307,7 +318,7 @@ public:
 	}
 
 private:
-	//! Take the operator and file count of the scan this file is read for from its state
+	//! Take the operator and file list of the scan this file is read for from its state
 	void SetScanState(GlobalTableFunctionState &gstate);
 	//! The input the wrapped function is initialized with - "file_input" receives what the scan adds to it
 	TableFunctionInitInput GetInitInput(TableFunctionFileInitInput &file_input) const;
@@ -319,8 +330,8 @@ private:
 	named_argument_map_t named_parameters;
 	//! How the wrapped function takes part in the scan
 	TableFunctionMultiFileSettings settings;
-	//! Guards the initialization of the global state below
-	mutex lock;
+	//! Initializes the global state once per file reader
+	OnceFlag initialize_once;
 	//! The global state of the wrapped function - shared by all threads scanning this file
 	unique_ptr<GlobalTableFunctionState> global_state;
 	//! The number of row groups to scan of this file that has been collected into the state of the scan
@@ -386,6 +397,9 @@ public:
 
 public:
 	void InitializeFileOptions(MultiFileOptions &file_options) override;
+	bool ReportsBytesScanned() const override {
+		return settings.reports_bytes_scanned;
+	}
 	unique_ptr<BaseFileReaderOptions> InitializeOptions(ClientContext &context,
 	                                                    optional_ptr<TableFunctionInfo> info) override;
 	bool ParseCopyOption(ClientContext &context, const Identifier &key, const vector<Value> &values,
@@ -403,6 +417,7 @@ public:
 	                MultiFileBindData &bind_data) override;
 	void CombineSchemas(ClientContext &context, const vector<shared_ptr<BaseUnionData>> &union_data, bool union_by_name,
 	                    vector<LogicalType> &return_types, vector<Identifier> &names) override;
+	void ReadFilesForStatistics(ClientContext &context, MultiFileBindData &bind_data) override;
 	void FinalizeBindData(MultiFileBindData &multi_file_data) override;
 	void GetVirtualColumns(ClientContext &context, MultiFileBindData &bind_data, virtual_column_map_t &result) override;
 	unique_ptr<GlobalTableFunctionState> InitializeGlobalState(ClientContext &context, MultiFileBindData &bind_data,
