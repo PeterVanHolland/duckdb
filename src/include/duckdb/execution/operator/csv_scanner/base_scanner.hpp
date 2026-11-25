@@ -116,7 +116,15 @@ public:
 	template <class T>
 	static inline void SkipValues(T &result, const idx_t count, const idx_t buffer_pos) {
 	}
+	//! Whether a value of this result may skip its UTF-8 check, so the block scan tracks ASCII blocks
+	template <class T>
+	static inline bool TracksAscii(const T &result) {
+		return false;
+	}
 
+	//! Set by the block scan while it adds a value whose bytes all lie in blocks without high bits, so the value
+	//! needs no UTF-8 validation
+	bool ascii_value = false;
 	//! Variable to keep information regarding quoted and escaped values
 	bool quoted = false;
 	//! If the current quoted value is unquoted
@@ -367,16 +375,22 @@ protected:
 		candidates &= ~(((uint64_t(1) << (to - from)) - 1) << (from - pos));
 	}
 
-	//! The delimiter at `at`, `before` is the state before it
-	template <class T>
-	void BlockDelimiter(T &result, const idx_t at, const CSVState before) {
+	//! The delimiter at `at`, `before` is the state before it, `ascii` whether the value lies in ASCII blocks
+	template <class T, bool TRACK_ASCII>
+	void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii) {
 		states.states[0] = before;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = at;
 		if (T::CanSkipValue(result)) {
 			T::SkipValue(result, at);
 		} else {
+			if (TRACK_ASCII) {
+				result.ascii_value = ascii;
+			}
 			T::AddValue(result, at);
+			if (TRACK_ASCII) {
+				result.ascii_value = false;
+			}
 		}
 	}
 
@@ -427,14 +441,26 @@ protected:
 		return last_delimiter + 1;
 	}
 
-	//! The row end at `at`, `before` is the state before it. Returns true when the result is full
-	template <class T>
+	//! The row end at `at`, `before` is the state before it, `ascii` whether the last value lies in ASCII blocks.
+	//! Returns true when the result is full
+	template <class T, bool TRACK_ASCII>
 	bool BlockRowEnd(T &result, const idx_t at, const CSVState before, const bool crlf, uint64_t &candidates,
-	                 const idx_t pos) {
+	                 const idx_t pos, const bool ascii) {
 		states.states[0] = before;
 		states.states[1] = crlf ? CSVState::CARRIAGE_RETURN : CSVState::RECORD_SEPARATOR;
 		iterator.pos.buffer_pos = at;
-		const bool full = T::CanSkipValue(result) ? T::AddRowWithoutValue(result, at) : T::AddRow(result, at);
+		bool full;
+		if (T::CanSkipValue(result)) {
+			full = T::AddRowWithoutValue(result, at);
+		} else {
+			if (TRACK_ASCII) {
+				result.ascii_value = ascii;
+			}
+			full = T::AddRow(result, at);
+			if (TRACK_ASCII) {
+				result.ascii_value = false;
+			}
+		}
 		lines_read++;
 		if (full) {
 			iterator.pos.buffer_pos = at + 1;
@@ -469,12 +495,23 @@ protected:
 		return false;
 	}
 
+	//! Chooses the ProcessBlocks instantiation of the dialect, TRACK_ASCII and SKIP_RUNS are the scan's
+	template <class T, bool TRACK_ASCII, bool SKIP_RUNS>
+	bool ProcessBlocksOfDialect(T &result, const idx_t to_pos) {
+		if (block_comment != '\0') {
+			return block_multi_byte_delimiter ? ProcessBlocks<T, true, true, TRACK_ASCII, SKIP_RUNS>(result, to_pos)
+			                                  : ProcessBlocks<T, false, true, TRACK_ASCII, SKIP_RUNS>(result, to_pos);
+		}
+		return block_multi_byte_delimiter ? ProcessBlocks<T, true, false, TRACK_ASCII, SKIP_RUNS>(result, to_pos)
+		                                  : ProcessBlocks<T, false, false, TRACK_ASCII, SKIP_RUNS>(result, to_pos);
+	}
+
 	//! Scans unquoted fields and quoted values in their canonical form, and preserves the states when handing back
 	//! to Process. Returns true when the result is full. Repeated SetQuoted calls may be skipped because the setter
-	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, so dialects without them pay nothing for
-	//! them; SKIP_RUNS is set for scans with unprojected columns, so scans reading every column keep the plain
-	//! delimiter path
-	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool SKIP_RUNS>
+	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, TRACK_ASCII (a projected string column is
+	//! validated) and SKIP_RUNS (the scan has unprojected columns) the scan's, so dialects and scans without them pay
+	//! nothing for them
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool TRACK_ASCII, bool SKIP_RUNS>
 	DUCKDB_BLOCK_SCAN_ALIGNED bool ProcessBlocks(T &result, const idx_t to_pos) {
 		const auto buffer = buffer_handle_ptr;
 		// the first byte not consumed, and the first byte after the last structural or special byte
@@ -484,10 +521,18 @@ protected:
 		// inside a comment only a row end matters, `comment_before` is the state before the comment byte
 		bool comment = false;
 		CSVState comment_before = CSVState::NOT_SET;
+		// whether every block that holds a byte of the current value is ASCII, tracked only when a value can skip
+		// its UTF-8 check, a value that began before the block scan is validated as every other value of the byte loop
+		const bool track_ascii = TRACK_ASCII;
+		bool value_ascii = track_ascii && IsSeparatorState(states.states[1]);
+		bool block_ascii = false;
 		uint64_t candidates;
 		idx_t block_end;
 		while (pos < to_pos && skipper.BlockCandidates(pos, candidates, block_end)) {
 			const idx_t limit = MinValue<idx_t>(block_end, to_pos);
+			block_ascii =
+			    track_ascii && !SwarBlock::HasHighBits(const_data_ptr_cast(buffer + block_end - SwarBlock::SIZE));
+			value_ascii = value_ascii && block_ascii;
 			while (candidates) {
 				const idx_t at = pos + CountZeros<uint64_t>::Trailing(candidates);
 				if (at >= limit) {
@@ -510,6 +555,7 @@ protected:
 						return true;
 					}
 					comment = false;
+					value_ascii = block_ascii;
 					last = at + row_end_bytes;
 					continue;
 				}
@@ -567,14 +613,18 @@ protected:
 						if (MULTI_BYTE_DELIMITER) {
 							ClearCandidates(candidates, pos, at + 2, at + 1 + delimiter_bytes);
 						}
-						BlockDelimiter(result, at + delimiter_bytes,
-						               MULTI_BYTE_DELIMITER ? DelimiterPenultimateState() : CSVState::UNQUOTED);
+						BlockDelimiter<T, TRACK_ASCII>(
+						    result, at + delimiter_bytes,
+						    MULTI_BYTE_DELIMITER ? DelimiterPenultimateState() : CSVState::UNQUOTED, value_ascii);
+						value_ascii = block_ascii;
 						last = at + 1 + delimiter_bytes;
 						continue;
 					}
-					if (BlockRowEnd(result, at + 1, CSVState::UNQUOTED, row_end_bytes == 2, candidates, pos)) {
+					if (BlockRowEnd<T, TRACK_ASCII>(result, at + 1, CSVState::UNQUOTED, row_end_bytes == 2, candidates,
+					                                pos, value_ascii)) {
 						return true;
 					}
+					value_ascii = block_ascii;
 					last = at + 1 + row_end_bytes;
 					continue;
 				}
@@ -595,9 +645,11 @@ protected:
 							                                           DelimiterPenultimateState(), run, last,
 							                                           candidates, pos, limit);
 						} else {
-							BlockDelimiter(result, at + delimiter_bytes - 1, DelimiterPenultimateState());
+							BlockDelimiter<T, TRACK_ASCII>(result, at + delimiter_bytes - 1,
+							                               DelimiterPenultimateState(), value_ascii);
 							last = at + delimiter_bytes;
 						}
+						value_ascii = block_ascii;
 						continue;
 					}
 					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::DELIMITER);
@@ -607,9 +659,10 @@ protected:
 						last =
 						    BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, last, candidates, pos, limit);
 					} else {
-						BlockDelimiter(result, at, before);
+						BlockDelimiter<T, TRACK_ASCII>(result, at, before, value_ascii);
 						last = at + 1;
 					}
+					value_ascii = block_ascii;
 					continue;
 				}
 				if (COMMENT && byte == block_comment) {
@@ -654,9 +707,10 @@ protected:
 				D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 				D_ASSERT(ReplayStates(last, at + 1).states[1] ==
 				         (row_end_bytes == 2 ? CSVState::CARRIAGE_RETURN : CSVState::RECORD_SEPARATOR));
-				if (BlockRowEnd(result, at, before, row_end_bytes == 2, candidates, pos)) {
+				if (BlockRowEnd<T, TRACK_ASCII>(result, at, before, row_end_bytes == 2, candidates, pos, value_ascii)) {
 					return true;
 				}
+				value_ascii = block_ascii;
 				last = at + row_end_bytes;
 			}
 			pos = limit;
@@ -672,17 +726,6 @@ protected:
 		SetStatesBefore(at, last);
 		iterator.pos.buffer_pos = at;
 		return false;
-	}
-
-	//! The block scan of the dialect, with or without the skipping of unprojected column runs
-	template <class T, bool SKIP_RUNS>
-	bool ProcessBlocksOfDialect(T &result, const idx_t to_pos) {
-		if (block_comment != '\0') {
-			return block_multi_byte_delimiter ? ProcessBlocks<T, true, true, SKIP_RUNS>(result, to_pos)
-			                                  : ProcessBlocks<T, false, true, SKIP_RUNS>(result, to_pos);
-		}
-		return block_multi_byte_delimiter ? ProcessBlocks<T, true, false, SKIP_RUNS>(result, to_pos)
-		                                  : ProcessBlocks<T, false, false, SKIP_RUNS>(result, to_pos);
 	}
 
 	//! Process one chunk
@@ -702,8 +745,12 @@ protected:
 		skipper.SetBuffer(*cur_buffer_handle);
 		while (iterator.pos.buffer_pos < to_pos) {
 			if (T::BLOCK_SCAN && block_scan && BlockScanPossible(result)) {
-				const bool full = T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, true>(result, to_pos)
-				                                       : ProcessBlocksOfDialect<T, false>(result, to_pos);
+				const bool full =
+				    T::TracksAscii(result)
+				        ? (T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, true, true>(result, to_pos)
+				                                : ProcessBlocksOfDialect<T, true, false>(result, to_pos))
+				        : (T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, false, true>(result, to_pos)
+				                                : ProcessBlocksOfDialect<T, false, false>(result, to_pos));
 				if (full) {
 					bytes_read = iterator.pos.buffer_pos - start_pos;
 					return;
