@@ -120,7 +120,7 @@ TEST_CASE("read_blob returns NULL as the modification time of a file system that
 	file_system->error_type = error_type;
 	file_system->last_modified = modified_time;
 	file_system->unknown_by_try_get = unknown_by_try_get;
-	FileSystem::GetFileSystem(*con.context).RegisterSubSystem(std::move(file_system));
+	VirtualFileSystem::Get(*con.context).RegisterSubSystem(std::move(file_system));
 
 	auto file = prefix + "file.csv";
 	auto result = con.Query(StringUtil::Format("SELECT size, last_modified, content FROM %s('%s')", function, file));
