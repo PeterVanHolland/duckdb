@@ -681,8 +681,8 @@ protected:
 				pending &= pending - 1;
 				const idx_t fields = fields_done + SwarWord::CountSetBits(delimiters & BitRange(row_start, end)) + 1;
 				const idx_t end_pos = pos + end;
-				// an empty line is a row end at the start of its row; the line size is the byte path's, from the end
-				// of the last row that was not an empty line
+				// an empty line is a row end at the start of its row; the line size is the byte path's, from the line
+				// break before the row
 				const bool empty_line = fields_done == 0 && end_pos == row_start_pos;
 				idx_t line_size;
 				if (have_previous_end) {
