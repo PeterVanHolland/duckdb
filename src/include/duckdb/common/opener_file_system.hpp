@@ -65,7 +65,7 @@ public:
 		return handle.file_system.GetLastModifiedTime(handle);
 	}
 	optional<timestamp_t> TryGetLastModifiedTime(FileHandle &handle) override {
-		return GetFileSystem().TryGetLastModifiedTime(handle);
+		return handle.file_system.TryGetLastModifiedTime(handle);
 	}
 	string GetVersionTag(FileHandle &handle) override {
 		return handle.file_system.GetVersionTag(handle);
