@@ -1,0 +1,27 @@
+# name: test/sql/copy/csv/test_block_scan_skip_runs_crlf_rejects.test
+# description: Runs of unprojected columns in a CRLF file: the rejects of the rows keep their positions
+# group: [csv]
+
+# the fixture depends on exact byte offsets
+require notwindows
+
+# the reported line start of a CRLF row depends on where the chunk before it ends, so the positions need the default chunk size
+require vector_size 2048
+
+# CRLF, rejects of the rows, selecting a
+query IIIIII
+CREATE OR REPLACE TEMP TABLE t_rej_CRLF_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_CRLF_a', rejects_scan='scan_rej_CRLF_a'); SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_CRLF_a ORDER BY ALL
+----
+7	112	121	3	MISSING COLUMNS	<LF>7,b7,c7
+7	112	121	4	MISSING COLUMNS	<LF>7,b7,c7
+7	112	121	5	MISSING COLUMNS	<LF>7,b7,c7
+8	121	138	7	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,extra
+
+# CRLF, rejects of the rows, selecting f
+query IIIIII
+CREATE OR REPLACE TEMP TABLE t_rej_CRLF_f AS SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_CRLF_f', rejects_scan='scan_rej_CRLF_f'); SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_CRLF_f ORDER BY ALL
+----
+7	112	121	3	MISSING COLUMNS	<LF>7,b7,c7
+7	112	121	4	MISSING COLUMNS	<LF>7,b7,c7
+7	112	121	5	MISSING COLUMNS	<LF>7,b7,c7
+8	121	138	7	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,extra

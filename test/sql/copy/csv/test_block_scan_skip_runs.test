@@ -474,24 +474,6 @@ SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim='
 ----
 13
 
-# CRLF, rejects of the rows, selecting a
-query IIIIII
-CREATE OR REPLACE TEMP TABLE t_rej_CRLF_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_CRLF_a', rejects_scan='scan_rej_CRLF_a'); SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_CRLF_a ORDER BY ALL
-----
-7	112	121	3	MISSING COLUMNS	<LF>7,b7,c7
-7	112	121	4	MISSING COLUMNS	<LF>7,b7,c7
-7	112	121	5	MISSING COLUMNS	<LF>7,b7,c7
-8	121	138	7	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,extra
-
-# CRLF, rejects of the rows, selecting f
-query IIIIII
-CREATE OR REPLACE TEMP TABLE t_rej_CRLF_f AS SELECT f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_CRLF_f', rejects_scan='scan_rej_CRLF_f'); SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_CRLF_f ORDER BY ALL
-----
-7	112	121	3	MISSING COLUMNS	<LF>7,b7,c7
-7	112	121	4	MISSING COLUMNS	<LF>7,b7,c7
-7	112	121	5	MISSING COLUMNS	<LF>7,b7,c7
-8	121	138	7	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,extra
-
 # CRLF, parallel=false and ignore_errors, selecting a, f
 query II
 SELECT a, f FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true, parallel=false) ORDER BY ALL
