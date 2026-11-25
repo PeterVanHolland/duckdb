@@ -533,3 +533,22 @@ query I
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_quoted_crlf_split.csv', auto_detect=false, header=false, delim=',', quote='"', escape='"', new_line='\r\n', columns={'c0':'VARCHAR'}, buffer_size=128, ignore_errors=true, parallel=false)
 ----
 4
+
+# empty lines before a row are not part of its line size, with the rows around them counted from the masks
+statement ok
+COPY (SELECT CASE WHEN i IN (150, 151, 152) THEN '' WHEN i = 153 THEN '153,' || repeat('b', 40) || ',c' ELSE i || ',bbbbbbbb,cccccccc' END FROM range(400) t(i) ORDER BY i) TO '{TEST_DIR}/count_empty_before_row.csv' (FORMAT CSV, HEADER false, QUOTE '', ESCAPE '');
+
+query I
+SELECT count(*) FROM read_csv('{TEST_DIR}/count_empty_before_row.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, max_line_size=47)
+----
+397
+
+statement error
+SELECT count(*) FROM read_csv('{TEST_DIR}/count_empty_before_row.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, max_line_size=46)
+----
+Invalid Input Error: CSV Error on Line: 154
+
+query I
+SELECT count(*) FROM read_csv('{TEST_DIR}/count_empty_before_row.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, max_line_size=46, ignore_errors=true)
+----
+396
