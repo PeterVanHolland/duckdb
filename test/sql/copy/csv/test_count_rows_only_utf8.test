@@ -364,6 +364,39 @@ SELECT line, column_idx, error_type FROM rej_utf8_eight_comment ORDER BY ALL
 10	1	INVALID ENCODING
 19	1	INVALID ENCODING
 
+# eight columns, two byte delimiter and a comment byte, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_eight_pipe2.csv', delim='||', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# eight columns, two byte delimiter and a comment byte, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_eight_pipe2.csv', delim='||', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+28
+
+# eight columns, two byte delimiter and a comment byte, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_eight_pipe2.csv', delim='||', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+28
+
+# eight columns, two byte delimiter and a comment byte, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_eight_pipe2_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_eight_pipe2.csv', delim='||', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_eight_pipe2_comment', rejects_scan='scan_utf8_eight_pipe2_comment')
+
+query I
+SELECT c FROM r_utf8_eight_pipe2_comment
+----
+28
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_eight_pipe2_comment ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+
 # one column, strict
 statement error
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_one.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'})
