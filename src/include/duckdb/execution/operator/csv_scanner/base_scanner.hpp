@@ -396,14 +396,26 @@ protected:
 		}
 	}
 
-	//! Whether the next candidate of the block is a delimiter, `next` is its position then. A run of unprojected
+	//! Whether a delimiter is the next structural byte of the block, `next` is its position then. A run of unprojected
 	//! columns that ends after one value (at a quote, a row end, the end of the block) is not worth the run call
-	inline bool RunContinues(const uint64_t candidates, const idx_t pos, const idx_t limit, idx_t &next) const {
-		if (!candidates) {
-			return false;
+	template <bool COMMENT>
+	inline bool RunContinues(uint64_t &candidates, const idx_t pos, const idx_t limit, idx_t &next) const {
+		while (candidates) {
+			next = pos + CountZeros<uint64_t>::Trailing(candidates);
+			if (next >= limit) {
+				return false;
+			}
+			const auto byte = static_cast<uint8_t>(buffer_handle_ptr[next]);
+			if (byte == block_delimiter) {
+				return true;
+			}
+			if (byte == '\n' || byte == '\r' || byte == block_quote || (COMMENT && byte == block_comment)) {
+				return false;
+			}
+			// a false candidate of the mask, data
+			candidates &= candidates - 1;
 		}
-		next = pos + CountZeros<uint64_t>::Trailing(candidates);
-		return next < limit && static_cast<uint8_t>(buffer_handle_ptr[next]) == block_delimiter;
+		return false;
 	}
 
 	//! The delimiter at `at` (the last byte of a multi byte delimiter) and the delimiters of the unprojected columns
@@ -668,7 +680,7 @@ protected:
 						ClearCandidates(candidates, pos, at + 1, at + delimiter_bytes);
 						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
 						idx_t second = 0;
-						if (run > 1 && RunContinues(candidates, pos, limit, second)) {
+						if (run > 1 && RunContinues<COMMENT>(candidates, pos, limit, second)) {
 							const idx_t after = BlockDelimiterRun<T, true, COMMENT>(result, at + delimiter_bytes - 1,
 							                                                        DelimiterPenultimateState(), run,
 							                                                        second, candidates, pos, limit);
@@ -687,7 +699,7 @@ protected:
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
 					idx_t second = 0;
-					if (run > 1 && RunContinues(candidates, pos, limit, second)) {
+					if (run > 1 && RunContinues<COMMENT>(candidates, pos, limit, second)) {
 						const idx_t after = BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, second,
 						                                                         candidates, pos, limit);
 						D_ASSERT(ReplayStates(last, after).states[1] == CSVState::DELIMITER);
