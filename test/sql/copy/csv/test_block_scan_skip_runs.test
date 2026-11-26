@@ -1625,3 +1625,186 @@ query I
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_replay_pipe2.csv', delim='||', new_line='\r\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
 ----
 6
+
+# block_scan_runs_second.csv and block_scan_runs_second_pipe2.csv hold eight rows `a,b,c,d,"e",f, ,h`: behind the
+# quoted value a scan that reads h has a run of exactly two values left, the second one a single space.
+
+# run of two, selecting h
+query I
+SELECT h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}) ORDER BY ALL
+----
+h
+h
+h
+h
+h
+h
+h
+h
+
+# run of two, parallel=false, selecting h
+query I
+SELECT h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, parallel=false) ORDER BY ALL
+----
+h
+h
+h
+h
+h
+h
+h
+h
+
+# run of two, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}) ORDER BY ALL
+----
+a
+a
+a
+a
+a
+a
+a
+a
+
+# run of two, parallel=false, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, parallel=false) ORDER BY ALL
+----
+a
+a
+a
+a
+a
+a
+a
+a
+
+# run of two, selecting g, h
+query II
+SELECT g, h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}) ORDER BY ALL
+----
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+
+# run of two, parallel=false, selecting g, h
+query II
+SELECT g, h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, parallel=false) ORDER BY ALL
+----
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+
+# run of two, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+8
+
+# run of two, parallel=false, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, parallel=false)
+----
+8
+
+# run of two, two byte delimiter, selecting h
+query I
+SELECT h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}) ORDER BY ALL
+----
+h
+h
+h
+h
+h
+h
+h
+h
+
+# run of two, two byte delimiter, parallel=false, selecting h
+query I
+SELECT h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, parallel=false) ORDER BY ALL
+----
+h
+h
+h
+h
+h
+h
+h
+h
+
+# run of two, two byte delimiter, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}) ORDER BY ALL
+----
+a
+a
+a
+a
+a
+a
+a
+a
+
+# run of two, two byte delimiter, parallel=false, selecting a
+query I
+SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, parallel=false) ORDER BY ALL
+----
+a
+a
+a
+a
+a
+a
+a
+a
+
+# run of two, two byte delimiter, selecting g, h
+query II
+SELECT g, h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}) ORDER BY ALL
+----
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+
+# run of two, two byte delimiter, parallel=false, selecting g, h
+query II
+SELECT g, h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, parallel=false) ORDER BY ALL
+----
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+ 	h
+
+# run of two, two byte delimiter, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+8
+
+# run of two, two byte delimiter, parallel=false, selecting count(*)
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_second_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, parallel=false)
+----
+8
