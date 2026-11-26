@@ -52,7 +52,7 @@ public:
 
 	timestamp_t GetLastModifiedTime(FileHandle &handle) override {
 		if (error_type == ExceptionType::NOT_IMPLEMENTED) {
-			return FileSystem::GetLastModifiedTime(handle);
+			return BaseFileSystem::GetLastModifiedTime(handle);
 		}
 		if (error_type != ExceptionType::INVALID) {
 			throw Exception(error_type, "failed to get the modification time");
@@ -81,11 +81,11 @@ public:
 	}
 
 	FileMetadata Stats(FileHandle &handle) override {
-		return FileSystem::Stats(handle);
+		return BaseFileSystem::Stats(handle);
 	}
 
 	optional<FileMetadata> GetStatsIfExists(const OpenFileInfo &file, optional_ptr<FileOpener> opener) override {
-		return FileSystem::GetStatsIfExists(file, opener);
+		return BaseFileSystem::GetStatsIfExists(file, opener);
 	}
 
 public:
