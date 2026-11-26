@@ -551,8 +551,8 @@ protected:
 	//! Scans unquoted fields and quoted values in their canonical form, and preserves the states when handing back
 	//! to Process. Returns true when the result is full. Repeated SetQuoted calls may be skipped because the setter
 	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, TRACK_ASCII (a projected string column is
-	//! validated) and SKIP_RUNS (the scan has unprojected columns) the scan's, so dialects and scans without them pay
-	//! nothing for them
+	//! validated) and SKIP_RUNS (runs of unprojected columns hold most of the columns) the scan's, so dialects and
+	//! scans without them pay nothing for them
 	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool TRACK_ASCII, bool SKIP_RUNS>
 	DUCKDB_BLOCK_SCAN_ALIGNED bool ProcessBlocks(T &result, const idx_t to_pos) {
 		const auto buffer = buffer_handle_ptr;
