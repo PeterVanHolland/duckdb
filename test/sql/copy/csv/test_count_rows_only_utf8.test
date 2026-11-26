@@ -264,7 +264,8 @@ SELECT line, column_idx, error_type FROM rej_utf8_crlf ORDER BY ALL
 # scan skips the first value of a row at the row end, by itself and with the run call: an invalid first value at rows
 # 9 and 150, a quoted one at row 17, an invalid byte in the last column at row 21, a valid non ASCII first value at
 # row 25. Each is counted with a comma or a two byte delimiter, without and with a comment byte, which selects the
-# four instantiations of the block scan; w8_comment also holds two comment lines.
+# four instantiations of the block scan; w8_comment also holds two comment lines. A scan that reads the second
+# column validates neither the first nor the last one and returns all 200 rows.
 
 # 1 column, a comma, strict
 statement error
@@ -420,6 +421,18 @@ SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv'
 ----
 197
 
+# 3 columns, a comma, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+200
+
+# 3 columns, a comma, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+200
+
 # 3 columns, a comma, rejects
 statement ok
 CREATE OR REPLACE TEMP TABLE r_utf8_w3_comma AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w3_comma', rejects_scan='scan_utf8_w3_comma')
@@ -453,6 +466,18 @@ query I
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true, parallel=false)
 ----
 197
+
+# 3 columns, a two byte delimiter, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+200
+
+# 3 columns, a two byte delimiter, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+200
 
 # 3 columns, a two byte delimiter, rejects
 statement ok
@@ -488,6 +513,18 @@ SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv'
 ----
 197
 
+# 3 columns, a comma and a comment byte, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+200
+
+# 3 columns, a comma and a comment byte, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+200
+
 # 3 columns, a comma and a comment byte, rejects
 statement ok
 CREATE OR REPLACE TEMP TABLE r_utf8_w3_comma_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w3_comma_comment', rejects_scan='scan_utf8_w3_comma_comment')
@@ -521,6 +558,18 @@ query I
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true, parallel=false)
 ----
 197
+
+# 3 columns, a two byte delimiter and a comment byte, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+200
+
+# 3 columns, a two byte delimiter and a comment byte, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+200
 
 # 3 columns, a two byte delimiter and a comment byte, rejects
 statement ok
@@ -556,6 +605,18 @@ SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv'
 ----
 197
 
+# 8 columns, a comma, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+200
+
+# 8 columns, a comma, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+200
+
 # 8 columns, a comma, rejects
 statement ok
 CREATE OR REPLACE TEMP TABLE r_utf8_w8_comma AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w8_comma', rejects_scan='scan_utf8_w8_comma')
@@ -589,6 +650,18 @@ query I
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true, parallel=false)
 ----
 197
+
+# 8 columns, a two byte delimiter, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+200
+
+# 8 columns, a two byte delimiter, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+200
 
 # 8 columns, a two byte delimiter, rejects
 statement ok
@@ -624,6 +697,18 @@ SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv'
 ----
 197
 
+# 8 columns, a comma and a comment byte, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+200
+
+# 8 columns, a comma and a comment byte, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+200
+
 # 8 columns, a comma and a comment byte, rejects
 statement ok
 CREATE OR REPLACE TEMP TABLE r_utf8_w8_comma_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w8_comma_comment', rejects_scan='scan_utf8_w8_comma_comment')
@@ -657,6 +742,18 @@ query I
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true, parallel=false)
 ----
 197
+
+# 8 columns, a two byte delimiter and a comment byte, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+200
+
+# 8 columns, a two byte delimiter and a comment byte, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+200
 
 # 8 columns, a two byte delimiter and a comment byte, rejects
 statement ok
