@@ -375,13 +375,15 @@ protected:
 		candidates &= ~(((uint64_t(1) << (to - from)) - 1) << (from - pos));
 	}
 
-	//! The delimiter at `at`, `before` is the state before it, `ascii` whether the value lies in ASCII blocks
-	template <class T, bool TRACK_ASCII>
-	void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii) {
+	//! The delimiter at `at`, `before` is the state before it, `ascii` whether the value lies in ASCII blocks. A scan
+	//! that skips runs knows from SkippableRun whether the value is skipped and passes it as `skip`
+	template <class T, bool TRACK_ASCII, bool SKIP_RUNS = false>
+	void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii, const bool skip = false) {
+		D_ASSERT(!SKIP_RUNS || skip == T::CanSkipValue(result));
 		states.states[0] = before;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = at;
-		if (T::CanSkipValue(result)) {
+		if (SKIP_RUNS ? skip : T::CanSkipValue(result)) {
 			T::SkipValue(result, at);
 		} else {
 			if (TRACK_ASCII) {
@@ -640,13 +642,13 @@ protected:
 						D_ASSERT(ReplayStates(last, at + delimiter_bytes).states[0] == DelimiterPenultimateState());
 						ClearCandidates(candidates, pos, at + 1, at + delimiter_bytes);
 						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
-						if (run > 0) {
+						if (run > 1) {
 							last = BlockDelimiterRun<T, true, COMMENT>(result, at + delimiter_bytes - 1,
 							                                           DelimiterPenultimateState(), run, last,
 							                                           candidates, pos, limit);
 						} else {
-							BlockDelimiter<T, TRACK_ASCII>(result, at + delimiter_bytes - 1,
-							                               DelimiterPenultimateState(), value_ascii);
+							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(
+							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), value_ascii, run == 1);
 							last = at + delimiter_bytes;
 						}
 						value_ascii = block_ascii;
@@ -655,11 +657,11 @@ protected:
 					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::DELIMITER);
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
-					if (run > 0) {
+					if (run > 1) {
 						last =
 						    BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, last, candidates, pos, limit);
 					} else {
-						BlockDelimiter<T, TRACK_ASCII>(result, at, before, value_ascii);
+						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(result, at, before, value_ascii, run == 1);
 						last = at + 1;
 					}
 					value_ascii = block_ascii;
