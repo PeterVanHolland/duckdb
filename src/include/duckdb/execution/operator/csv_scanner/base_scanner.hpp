@@ -984,8 +984,8 @@ protected:
 						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
 						if (run > 1) {
 							last = BlockDelimiterRun<T, true, COMMENT, COUNT_ROWS>(result, at + delimiter_bytes - 1,
-							                                           DelimiterPenultimateState(), run, last,
-							                                           candidates, pos, limit);
+							                                                       DelimiterPenultimateState(), run,
+							                                                       last, candidates, pos, limit);
 						} else {
 							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(
 							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), value_ascii, run == 1);
@@ -998,10 +998,11 @@ protected:
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
 					if (run > 1) {
-						last =
-						    BlockDelimiterRun<T, false, COMMENT, COUNT_ROWS>(result, at, before, run, last, candidates, pos, limit);
+						last = BlockDelimiterRun<T, false, COMMENT, COUNT_ROWS>(result, at, before, run, last,
+						                                                        candidates, pos, limit);
 					} else {
-						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(result, at, before, value_ascii, run == 1);
+						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(result, at, before, value_ascii,
+						                                                      run == 1);
 						last = at + 1;
 					}
 					value_ascii = block_ascii;
