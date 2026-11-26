@@ -248,8 +248,13 @@ public:
 	bool validate_first_column = false;
 	//! The scan reads no column (count(*)); only the first column is validated
 	bool only_counts_rows = false;
-	//! Per column, how many columns from it on are not projected, 0 for a projected column
+	//! Per column, how many values from it on the block scan skips with one call: 0 for a projected column, 1 for a
+	//! column of a run of fewer than MIN_SKIPPED_RUN unprojected columns, otherwise the rest of its run
 	unsafe_unique_array<idx_t> unprojected_run;
+	//! The shortest run of unprojected columns that is skipped with one call
+	static constexpr idx_t MIN_SKIPPED_RUN = 6;
+	//! Whether the scan has such a run
+	bool skips_runs = false;
 	idx_t chunk_col_id = 0;
 
 	bool icu_loaded = false;
@@ -294,9 +299,9 @@ public:
 	}
 	static inline void SkipValue(StringValueResult &result, const idx_t buffer_pos);
 	static DUCKDB_BLOCK_SCAN_INLINE bool AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos);
-	//! Whether the scan has unprojected columns, so the block scan skips their runs
+	//! Whether the scan has a run of unprojected columns that the block scan skips with one call
 	static inline bool SkipsRuns(const StringValueResult &result) {
-		return result.projecting_columns;
+		return result.skips_runs;
 	}
 	static constexpr bool CAN_COUNT_ROWS = true;
 	//! Whether the scan reads no column, so the block scan may count the rows of plain blocks from their masks
@@ -307,13 +312,16 @@ public:
 	//! `after_row_end` the position after it. Returns true when the result is full
 	static inline bool AddCountedRows(StringValueResult &result, const idx_t rows, const idx_t row_end,
 	                                  const idx_t after_row_end);
-	//! The unprojected columns from the current one on, 0 when the value ending at buffer_pos has to be read
+	//! How many values the block scan skips with one call from the one ending at buffer_pos on: 0 when that one has
+	//! to be read, 1 when only it is skipped
 	static inline idx_t SkippableRun(const StringValueResult &result, const idx_t buffer_pos) {
-		if (!result.projecting_columns || result.cur_col_id >= result.number_of_columns ||
-		    result.last_position.buffer_pos > buffer_pos) {
+		D_ASSERT(result.projecting_columns);
+		if (result.cur_col_id >= result.number_of_columns) {
 			return 0;
 		}
-		return result.unprojected_run[result.cur_col_id];
+		const idx_t run = result.unprojected_run[result.cur_col_id];
+		// a value that ends before the last position was dealt with already, it starts no run
+		return run > 1 && result.last_position.buffer_pos > buffer_pos ? 1 : run;
 	}
 	//! The bookkeeping of `count` unprojected values, the last one ending at the delimiter at buffer_pos
 	static inline void SkipValues(StringValueResult &result, const idx_t count, const idx_t first_buffer_pos,

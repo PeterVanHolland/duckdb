@@ -118,6 +118,18 @@ StringValueResult::StringValueResult(CSVStates &states, CSVStateMachine &state_m
 				run = projected_columns[col_idx - 1] ? 0 : run + 1;
 				unprojected_run[col_idx - 1] = run;
 			}
+			// the values of a short run are skipped one by one, the call for a run costs more than it saves there
+			for (idx_t col_idx = 0; col_idx < number_of_columns;) {
+				const idx_t length = unprojected_run[col_idx];
+				if (length >= MIN_SKIPPED_RUN) {
+					skips_runs = true;
+				} else {
+					for (idx_t i = col_idx; i < col_idx + length; i++) {
+						unprojected_run[i] = 1;
+					}
+				}
+				col_idx += MaxValue<idx_t>(length, 1);
+			}
 		}
 		if (!projecting_columns) {
 			for (idx_t j = logical_types.size(); j < number_of_columns; j++) {
