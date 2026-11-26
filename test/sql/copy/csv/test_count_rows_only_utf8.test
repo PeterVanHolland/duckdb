@@ -262,8 +262,8 @@ SELECT line, column_idx, error_type FROM rej_utf8_crlf ORDER BY ALL
 
 # files of eight columns, where the first value of a row is skipped with the run call: an invalid first value at row
 # 9, a quoted one at row 17, an invalid byte in the fifth column at row 21, a valid non ASCII first value at row 25;
-# with a comma, with a two byte delimiter and with comment lines. And a single column file with an invalid value
-# at row 7.
+# with a comma, with a two byte delimiter and with comment lines. And a single column file of 200 rows, where the
+# value ends at the row end: invalid values at rows 7 and 150, an invalid quoted one at row 30.
 
 # eight columns, strict
 statement error
@@ -374,13 +374,13 @@ Invalid Input Error: CSV Error on Line: 7
 query I
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_one.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true)
 ----
-19
+197
 
 # one column, parallel=false and ignore_errors
 query I
 SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_one.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true, parallel=false)
 ----
-19
+197
 
 # one column, rejects
 statement ok
@@ -389,9 +389,11 @@ CREATE OR REPLACE TEMP TABLE r_utf8_one AS SELECT count(*) AS c FROM read_csv('{
 query I
 SELECT c FROM r_utf8_one
 ----
-19
+197
 
 query III
 SELECT line, column_idx, error_type FROM rej_utf8_one ORDER BY ALL
 ----
 7	1	INVALID ENCODING
+30	1	INVALID ENCODING
+150	1	INVALID ENCODING
