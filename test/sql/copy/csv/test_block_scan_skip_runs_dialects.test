@@ -324,7 +324,7 @@ SELECT a, l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||'
 15	l15
 16	l16
 
-# pipe2, rejects of the rows, selecting a
+# file pipe2, rejects of the rows, selecting a
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_pipe2_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_pipe2_a', rejects_scan='scan_rej_pipe2_a')
 
@@ -339,7 +339,7 @@ SELECT line, column_idx, error_type FROM rej_pipe2_a ORDER BY ALL
 8	14	TOO MANY COLUMNS
 8	15	TOO MANY COLUMNS
 
-# pipe2, rejects of the rows, selecting l
+# file pipe2, rejects of the rows, selecting l
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_pipe2_l AS SELECT l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_pipe2_l', rejects_scan='scan_rej_pipe2_l')
 
@@ -665,7 +665,7 @@ SELECT a, l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cent.csv', delim='¦',
 15	l15
 16	l16
 
-# cent, rejects of the rows, selecting a
+# file cent, rejects of the rows, selecting a
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_cent_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cent.csv', delim='¦', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_cent_a', rejects_scan='scan_rej_cent_a')
 
@@ -680,7 +680,7 @@ SELECT line, column_idx, error_type FROM rej_cent_a ORDER BY ALL
 8	14	TOO MANY COLUMNS
 8	15	TOO MANY COLUMNS
 
-# cent, rejects of the rows, selecting l
+# file cent, rejects of the rows, selecting l
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_cent_l AS SELECT l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cent.csv', delim='¦', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_cent_l', rejects_scan='scan_rej_cent_l')
 
@@ -1006,7 +1006,7 @@ SELECT a, l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',
 15	l15
 16	l16
 
-# cr_full, rejects of the rows, selecting a
+# file cr_full, rejects of the rows, selecting a
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_cr_full_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',', new_line='\r', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_cr_full_a', rejects_scan='scan_rej_cr_full_a')
 
@@ -1021,7 +1021,7 @@ SELECT line, column_idx, error_type FROM rej_cr_full_a ORDER BY ALL
 8	14	TOO MANY COLUMNS
 8	15	TOO MANY COLUMNS
 
-# cr_full, rejects of the rows, selecting l
+# file cr_full, rejects of the rows, selecting l
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_cr_full_l AS SELECT l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',', new_line='\r', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_cr_full_l', rejects_scan='scan_rej_cr_full_l')
 
@@ -1321,7 +1321,7 @@ SELECT a, l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_comment.csv', delim=',
 15	l15
 16	l16
 
-# comment, rejects of the rows, selecting a
+# file comment, rejects of the rows, selecting a
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_comment_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_comment.csv', delim=',', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_comment_a', rejects_scan='scan_rej_comment_a')
 
@@ -1355,7 +1355,7 @@ SELECT line, column_idx, error_type FROM rej_comment_a ORDER BY ALL
 12	10	MISSING COLUMNS
 12	11	MISSING COLUMNS
 
-# comment, rejects of the rows, selecting l
+# file comment, rejects of the rows, selecting l
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_comment_l AS SELECT l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_comment.csv', delim=',', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_comment_l', rejects_scan='scan_rej_comment_l')
 
@@ -1674,7 +1674,7 @@ SELECT a, l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', del
 15	l15
 16	l16
 
-# crlf_comment, rejects of the rows, selecting a
+# file crlf_comment, rejects of the rows, selecting a
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_crlf_comment_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', delim=',', new_line='\r\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_crlf_comment_a', rejects_scan='scan_rej_crlf_comment_a')
 
@@ -1708,7 +1708,7 @@ SELECT line, column_idx, error_type FROM rej_crlf_comment_a ORDER BY ALL
 12	10	MISSING COLUMNS
 12	11	MISSING COLUMNS
 
-# crlf_comment, rejects of the rows, selecting l
+# file crlf_comment, rejects of the rows, selecting l
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_crlf_comment_l AS SELECT l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', delim=',', new_line='\r\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_crlf_comment_l', rejects_scan='scan_rej_crlf_comment_l')
 
@@ -2027,7 +2027,7 @@ SELECT a, l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2_comment.csv', de
 15	l15
 16	l16
 
-# pipe2_comment, rejects of the rows, selecting a
+# file pipe2_comment, rejects of the rows, selecting a
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_pipe2_comment_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2_comment.csv', delim='||', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_pipe2_comment_a', rejects_scan='scan_rej_pipe2_comment_a')
 
@@ -2061,7 +2061,7 @@ SELECT line, column_idx, error_type FROM rej_pipe2_comment_a ORDER BY ALL
 12	10	MISSING COLUMNS
 12	11	MISSING COLUMNS
 
-# pipe2_comment, rejects of the rows, selecting l
+# file pipe2_comment, rejects of the rows, selecting l
 statement ok
 CREATE OR REPLACE TEMP TABLE t_rej_pipe2_comment_l AS SELECT l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2_comment.csv', delim='||', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_pipe2_comment_l', rejects_scan='scan_rej_pipe2_comment_l')
 
