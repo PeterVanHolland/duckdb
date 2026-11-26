@@ -6,8 +6,8 @@
 require notwindows
 
 # Every block_scan_runs_*.csv holds the rows of block_scan_runs.csv written with the dialect: 12 columns, a tab, a quoted
-# value holding the delimiter, a quote in an unquoted value, a space before a quote, empty values, too few and too many
-# columns, an escaped quote, a run across a block edge, a multi-byte delimiter across a block edge and no newline after
+# value holding the delimiter, a quote in an unquoted value, a space before a quote, empty values, too few columns, three
+# values too many, an escaped quote, a run across a block edge, a multi-byte delimiter across a block edge and no newline after
 # the last row; the multi-byte delimiter files add a partial match of the delimiter inside a value, the comment files
 # comment lines, a comment byte inside a value and a comment byte right after a delimiter. Projections leave runs of
 # unprojected columns on both sides of the 6 columns from which a run is skipped with one call. Expected results are
@@ -173,7 +173,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 q"11
 q||3
 x5
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyy
 NULL
 
@@ -317,6 +317,8 @@ SELECT line, column_idx, error_type FROM rej_pipe2_a ORDER BY ALL
 7	10	MISSING COLUMNS
 7	11	MISSING COLUMNS
 8	13	TOO MANY COLUMNS
+8	14	TOO MANY COLUMNS
+8	15	TOO MANY COLUMNS
 
 # pipe2, rejects of the rows, selecting l
 statement ok
@@ -330,6 +332,8 @@ SELECT line, column_idx, error_type FROM rej_pipe2_l ORDER BY ALL
 7	10	MISSING COLUMNS
 7	11	MISSING COLUMNS
 8	13	TOO MANY COLUMNS
+8	14	TOO MANY COLUMNS
+8	15	TOO MANY COLUMNS
 
 # file cent, strict, counting
 statement error
@@ -491,7 +495,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 q"11
 q¦3
 x5
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyy
 NULL
 
@@ -635,6 +639,8 @@ SELECT line, column_idx, error_type FROM rej_cent_a ORDER BY ALL
 7	10	MISSING COLUMNS
 7	11	MISSING COLUMNS
 8	13	TOO MANY COLUMNS
+8	14	TOO MANY COLUMNS
+8	15	TOO MANY COLUMNS
 
 # cent, rejects of the rows, selecting l
 statement ok
@@ -648,6 +654,8 @@ SELECT line, column_idx, error_type FROM rej_cent_l ORDER BY ALL
 7	10	MISSING COLUMNS
 7	11	MISSING COLUMNS
 8	13	TOO MANY COLUMNS
+8	14	TOO MANY COLUMNS
+8	15	TOO MANY COLUMNS
 
 # file cr_full, strict, counting
 statement error
@@ -809,7 +817,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 q"11
 q,3
 x5
-xxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyyy
 NULL
 
@@ -953,6 +961,8 @@ SELECT line, column_idx, error_type FROM rej_cr_full_a ORDER BY ALL
 7	10	MISSING COLUMNS
 7	11	MISSING COLUMNS
 8	13	TOO MANY COLUMNS
+8	14	TOO MANY COLUMNS
+8	15	TOO MANY COLUMNS
 
 # cr_full, rejects of the rows, selecting l
 statement ok
@@ -966,6 +976,8 @@ SELECT line, column_idx, error_type FROM rej_cr_full_l ORDER BY ALL
 7	10	MISSING COLUMNS
 7	11	MISSING COLUMNS
 8	13	TOO MANY COLUMNS
+8	14	TOO MANY COLUMNS
+8	15	TOO MANY COLUMNS
 
 # file comment, strict, counting
 statement error
@@ -1111,7 +1123,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 q"11
 q,3
 x5
-xxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyyy
 NULL
 
@@ -1247,6 +1259,8 @@ SELECT line, column_idx, error_type FROM rej_comment_a ORDER BY ALL
 9	10	MISSING COLUMNS
 9	11	MISSING COLUMNS
 10	13	TOO MANY COLUMNS
+10	14	TOO MANY COLUMNS
+10	15	TOO MANY COLUMNS
 11	2	MISSING COLUMNS
 11	3	MISSING COLUMNS
 11	4	MISSING COLUMNS
@@ -1279,6 +1293,8 @@ SELECT line, column_idx, error_type FROM rej_comment_l ORDER BY ALL
 9	10	MISSING COLUMNS
 9	11	MISSING COLUMNS
 10	13	TOO MANY COLUMNS
+10	14	TOO MANY COLUMNS
+10	15	TOO MANY COLUMNS
 11	2	MISSING COLUMNS
 11	3	MISSING COLUMNS
 11	4	MISSING COLUMNS
@@ -1443,7 +1459,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 q"11
 q,3
 x5
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyy
 NULL
 
@@ -1579,6 +1595,8 @@ SELECT line, column_idx, error_type FROM rej_crlf_comment_a ORDER BY ALL
 9	10	MISSING COLUMNS
 9	11	MISSING COLUMNS
 10	13	TOO MANY COLUMNS
+10	14	TOO MANY COLUMNS
+10	15	TOO MANY COLUMNS
 11	2	MISSING COLUMNS
 11	3	MISSING COLUMNS
 11	4	MISSING COLUMNS
@@ -1611,6 +1629,8 @@ SELECT line, column_idx, error_type FROM rej_crlf_comment_l ORDER BY ALL
 9	10	MISSING COLUMNS
 9	11	MISSING COLUMNS
 10	13	TOO MANY COLUMNS
+10	14	TOO MANY COLUMNS
+10	15	TOO MANY COLUMNS
 11	2	MISSING COLUMNS
 11	3	MISSING COLUMNS
 11	4	MISSING COLUMNS
@@ -1775,7 +1795,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 q"11
 q||3
 x5
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyy
 NULL
 
@@ -1911,6 +1931,8 @@ SELECT line, column_idx, error_type FROM rej_pipe2_comment_a ORDER BY ALL
 9	10	MISSING COLUMNS
 9	11	MISSING COLUMNS
 10	13	TOO MANY COLUMNS
+10	14	TOO MANY COLUMNS
+10	15	TOO MANY COLUMNS
 11	2	MISSING COLUMNS
 11	3	MISSING COLUMNS
 11	4	MISSING COLUMNS
@@ -1943,6 +1965,8 @@ SELECT line, column_idx, error_type FROM rej_pipe2_comment_l ORDER BY ALL
 9	10	MISSING COLUMNS
 9	11	MISSING COLUMNS
 10	13	TOO MANY COLUMNS
+10	14	TOO MANY COLUMNS
+10	15	TOO MANY COLUMNS
 11	2	MISSING COLUMNS
 11	3	MISSING COLUMNS
 11	4	MISSING COLUMNS

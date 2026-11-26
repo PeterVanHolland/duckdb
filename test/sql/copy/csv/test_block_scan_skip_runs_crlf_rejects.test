@@ -19,7 +19,9 @@ SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(
 7	220	244	9	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
 7	220	244	10	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
 7	220	244	11	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
-8	244	279	13	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra
+8	244	279	13	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	244	285	14	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	244	292	15	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
 
 # CRLF, rejects of the rows, selecting l
 statement ok
@@ -32,4 +34,6 @@ SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(
 7	220	244	9	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
 7	220	244	10	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
 7	220	244	11	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
-8	244	279	13	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra
+8	244	279	13	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	244	285	14	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	244	292	15	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3

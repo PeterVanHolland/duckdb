@@ -7,8 +7,8 @@ require notwindows
 
 # block_scan_runs.csv has 12 columns, so that projections leave runs of unprojected columns that are skipped with one
 # call (6 columns and more) and runs that are not. Its rows hold a tab, a quoted value with the delimiter, a quote in an
-# unquoted value, a space before a quote, empty values, too few and too many columns, an escaped quote, a run across a
-# block edge, delimiters on the last and on the first byte of a block, and no newline after the last row.
+# unquoted value, a space before a quote, empty values, too few columns, three values too many, an escaped quote, a run
+# across a block edge, delimiters on the last and on the first byte of a block, and no newline after the last row.
 # The CRLF file holds the same rows, the CR file a lone carriage return inside a run, empty_first.csv an empty first
 # value in every row. The wide file has 300 columns with a quoted value, a short and a long row. Expected results are
 # those of a build without the run skipping.
@@ -176,7 +176,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 q"11
 q,3
 x5
-xxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyyy
 NULL
 
@@ -345,7 +345,9 @@ SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(
 7	215	237	9	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
 7	215	237	10	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
 7	215	237	11	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
-8	238	272	13	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra
+8	238	272	13	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	238	278	14	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	238	285	15	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
 
 # LF, rejects of the rows, selecting l
 statement ok
@@ -358,7 +360,9 @@ SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(
 7	215	237	9	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
 7	215	237	10	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
 7	215	237	11	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
-8	238	272	13	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra
+8	238	272	13	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	238	278	14	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	238	285	15	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
 
 # LF, parallel=false and ignore_errors, selecting a, l
 query II
@@ -539,7 +543,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 q"11
 q,3
 x5
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyy
 NULL
 
