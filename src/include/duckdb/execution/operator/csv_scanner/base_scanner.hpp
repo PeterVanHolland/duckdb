@@ -396,56 +396,16 @@ protected:
 		}
 	}
 
-	//! Whether a delimiter is the next structural byte of the block, `next` is its position then. A run of unprojected
-	//! columns that ends after one value (at a quote, a row end, the end of the block) is not worth the run call
-	template <bool COMMENT>
-	inline bool RunContinues(uint64_t &candidates, const idx_t pos, const idx_t limit, idx_t &next) const {
-		while (candidates) {
-			next = pos + CountZeros<uint64_t>::Trailing(candidates);
-			if (next >= limit) {
-				return false;
-			}
-			const auto byte = static_cast<uint8_t>(buffer_handle_ptr[next]);
-			if (byte == block_delimiter) {
-				return true;
-			}
-			if (byte == '\n' || byte == '\r' || byte == block_quote || (COMMENT && byte == block_comment)) {
-				return false;
-			}
-			// a false candidate of the mask, data
-			candidates &= candidates - 1;
-		}
-		return false;
-	}
-
 	//! The delimiter at `at` (the last byte of a multi byte delimiter) and the delimiters of the unprojected columns
-	//! that follow it in the block, `run` at most, with one bookkeeping call. `second` is the delimiter byte that
-	//! follows (RunContinues), `last` the first byte after the previous structural byte. Returns the first byte after
-	//! the last consumed delimiter
+	//! that follow it in the block, `run` at most, with one bookkeeping call. `last` is the first byte after the
+	//! previous structural byte. Returns the first byte after the last consumed delimiter
 	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT>
-	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t second,
-	                        const idx_t last, uint64_t &candidates, const idx_t pos, const idx_t limit) {
-		D_ASSERT(run > 1);
+	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t last,
+	                        uint64_t &candidates, const idx_t pos, const idx_t limit) {
 		idx_t last_delimiter = at;
 		CSVState before_last = before;
 		idx_t consumed = 1;
-		bool complete = true;
-		if (MULTI_BYTE_DELIMITER) {
-			const idx_t delimiter_bytes = DelimiterBytes(second, limit);
-			complete = delimiter_bytes != 0;
-			if (complete) {
-				ClearCandidates(candidates, pos, second, second + delimiter_bytes);
-				before_last = DelimiterPenultimateState();
-				last_delimiter = second + delimiter_bytes - 1;
-				consumed++;
-			}
-		} else {
-			candidates &= candidates - 1;
-			before_last = StateAfterData(CSVState::DELIMITER, at + 1, second);
-			last_delimiter = second;
-			consumed++;
-		}
-		while (complete && consumed < run && candidates) {
+		while (consumed < run && candidates) {
 			const idx_t next = pos + CountZeros<uint64_t>::Trailing(candidates);
 			if (next >= limit) {
 				break;
@@ -682,14 +642,13 @@ protected:
 						D_ASSERT(ReplayStates(last, at + delimiter_bytes).states[0] == DelimiterPenultimateState());
 						ClearCandidates(candidates, pos, at + 1, at + delimiter_bytes);
 						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
-						idx_t second = 0;
-						if (run > 1 && RunContinues<COMMENT>(candidates, pos, limit, second)) {
+						if (run > 1) {
 							last = BlockDelimiterRun<T, true, COMMENT>(result, at + delimiter_bytes - 1,
-							                                           DelimiterPenultimateState(), run, second, last,
+							                                           DelimiterPenultimateState(), run, last,
 							                                           candidates, pos, limit);
 						} else {
 							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(
-							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), value_ascii, run != 0);
+							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), value_ascii, run == 1);
 							last = at + delimiter_bytes;
 						}
 						value_ascii = block_ascii;
@@ -698,12 +657,11 @@ protected:
 					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::DELIMITER);
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
-					idx_t second = 0;
-					if (run > 1 && RunContinues<COMMENT>(candidates, pos, limit, second)) {
-						last = BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, second, last, candidates,
-						                                            pos, limit);
+					if (run > 1) {
+						last =
+						    BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, last, candidates, pos, limit);
 					} else {
-						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(result, at, before, value_ascii, run != 0);
+						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(result, at, before, value_ascii, run == 1);
 						last = at + 1;
 					}
 					value_ascii = block_ascii;
