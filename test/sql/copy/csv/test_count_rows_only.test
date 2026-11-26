@@ -177,110 +177,113 @@ SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_col3.csv', d
 
 # block_scan_runs.csv, strict
 statement error
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'})
 ----
 Invalid Input Error: CSV Error on Line: 7
 
 # block_scan_runs.csv, ignore_errors
 query I
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
-----
-13
-
-# block_scan_runs.csv, null_padding and ignore_errors
-query I
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true, null_padding=true)
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true)
 ----
 14
 
+# block_scan_runs.csv, null_padding and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true, null_padding=true)
+----
+15
+
 # block_scan_runs.csv, rejects
 statement ok
-CREATE OR REPLACE TEMP TABLE r_runs AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, store_rejects=true, rejects_table='rej_runs', rejects_scan='scan_runs')
+CREATE OR REPLACE TEMP TABLE r_runs AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_runs', rejects_scan='scan_runs')
 
 query I
 SELECT c FROM r_runs
 ----
-13
+14
 
 query IIII
 SELECT line, column_idx, error_type, csv_line FROM rej_runs ORDER BY ALL
 ----
-7	3	MISSING COLUMNS	7,b7,c7
-7	4	MISSING COLUMNS	7,b7,c7
-7	5	MISSING COLUMNS	7,b7,c7
-8	7	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,extra
+7	8	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
+7	9	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
+7	10	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
+7	11	MISSING COLUMNS	7,b7,c7,d7,e7,f7,g7,h7
+8	13	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	14	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	15	TOO MANY COLUMNS	8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
 
-# block_scan_runs.csv, max_line_size 20, strict
+# block_scan_runs.csv, max_line_size 40, strict
 statement error
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, max_line_size=20)
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, max_line_size=40)
 ----
 Invalid Input Error: CSV Error on Line: 7
 
-# block_scan_runs.csv, max_line_size 20, ignore_errors
+# block_scan_runs.csv, max_line_size 40, ignore_errors
 query I
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, max_line_size=20, ignore_errors=true)
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, max_line_size=40, ignore_errors=true)
 ----
 7
 
 # block_scan_runs_comment.csv, strict
 statement error
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_comment.csv', delim=',', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_comment.csv', delim=',', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'})
 ----
 Invalid Input Error: CSV Error on Line: 9
 
 # block_scan_runs_comment.csv, ignore_errors
 query I
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_comment.csv', delim=',', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_comment.csv', delim=',', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true)
 ----
-11
+12
 
 # block_scan_runs_crlf_comment.csv, strict
 statement error
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', delim=',', new_line='\r\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', delim=',', new_line='\r\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'})
 ----
 Invalid Input Error: CSV Error on Line: 9
 
 # block_scan_runs_crlf_comment.csv, ignore_errors
 query I
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', delim=',', new_line='\r\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', delim=',', new_line='\r\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true)
 ----
-11
+12
 
 # block_scan_runs_cr_full.csv, strict
 statement error
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',', new_line='\r', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',', new_line='\r', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'})
 ----
 Invalid Input Error: CSV Error on Line: 7
 
 # block_scan_runs_cr_full.csv, ignore_errors
 query I
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',', new_line='\r', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',', new_line='\r', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true)
 ----
-13
+14
 
 # block_scan_runs_pipe2.csv, strict
 statement error
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'})
 ----
 Invalid Input Error: CSV Error on Line: 7
 
 # block_scan_runs_pipe2.csv, ignore_errors
 query I
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true)
 ----
-13
+14
 
 # block_scan_runs_cent.csv, strict
 statement error
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cent.csv', delim='¦', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'})
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cent.csv', delim='¦', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'})
 ----
 Invalid Input Error: CSV Error on Line: 7
 
 # block_scan_runs_cent.csv, ignore_errors
 query I
-SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cent.csv', delim='¦', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR'}, ignore_errors=true)
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cent.csv', delim='¦', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true)
 ----
-13
+14
 
 # block_scan_invalid_utf8.csv, strict
 statement error
