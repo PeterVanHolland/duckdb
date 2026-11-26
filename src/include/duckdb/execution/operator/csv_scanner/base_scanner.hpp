@@ -442,10 +442,11 @@ protected:
 
 	//! The delimiter at `at` (the last byte of a multi byte delimiter) and the delimiters of the unprojected columns
 	//! that follow it in the block, `run` at most, with one bookkeeping call. `second` is the delimiter byte that
-	//! follows (RunContinues). Returns the first byte after the last consumed delimiter
+	//! follows (RunContinues), `last` the first byte after the previous structural byte. Returns the first byte after
+	//! the last consumed delimiter
 	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool COUNT_ROWS = false>
 	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t second,
-	                        uint64_t &candidates, const idx_t pos, const idx_t limit) {
+	                        const idx_t last, uint64_t &candidates, const idx_t pos, const idx_t limit) {
 		D_ASSERT(run > 1);
 		idx_t last_delimiter = at;
 		CSVState before_last = before;
@@ -495,6 +496,8 @@ protected:
 			}
 			consumed++;
 		}
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[1] == CSVState::DELIMITER);
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[0] == before_last);
 		states.states[0] = before_last;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = last_delimiter;
@@ -1021,12 +1024,9 @@ protected:
 						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
 						idx_t second = 0;
 						if (run > 1 && RunContinues<COMMENT>(candidates, pos, limit, second)) {
-							const idx_t after = BlockDelimiterRun<T, true, COMMENT, COUNT_ROWS>(
-							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), run, second, candidates,
-							    pos, limit);
-							D_ASSERT(ReplayStates(last, after).states[1] == CSVState::DELIMITER);
-							D_ASSERT(ReplayStates(last, after).states[0] == states.states[0]);
-							last = after;
+							last = BlockDelimiterRun<T, true, COMMENT, COUNT_ROWS>(
+							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), run, second, last,
+							    candidates, pos, limit);
 						} else {
 							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(
 							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), value_ascii, run != 0);
@@ -1040,11 +1040,8 @@ protected:
 					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
 					idx_t second = 0;
 					if (run > 1 && RunContinues<COMMENT>(candidates, pos, limit, second)) {
-						const idx_t after = BlockDelimiterRun<T, false, COMMENT, COUNT_ROWS>(
-						    result, at, before, run, second, candidates, pos, limit);
-						D_ASSERT(ReplayStates(last, after).states[1] == CSVState::DELIMITER);
-						D_ASSERT(ReplayStates(last, after).states[0] == states.states[0]);
-						last = after;
+						last = BlockDelimiterRun<T, false, COMMENT, COUNT_ROWS>(result, at, before, run, second, last,
+						                                                        candidates, pos, limit);
 					} else {
 						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(result, at, before, value_ascii,
 						                                                      run != 0);
