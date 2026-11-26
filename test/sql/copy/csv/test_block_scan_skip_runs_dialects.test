@@ -9,9 +9,9 @@ require notwindows
 # value holding the delimiter, a quote in an unquoted value, a space before a quote, empty values, too few columns, three
 # values too many, an escaped quote, a run across a block edge, a multi-byte delimiter across a block edge and no newline after
 # the last row; the multi-byte delimiter files add a partial match of the delimiter inside a value, the comment files
-# comment lines, a comment byte inside a value and a comment byte right after a delimiter. Projections leave runs of
-# unprojected columns on both sides of the 6 columns from which a run is skipped with one call. Expected results are
-# those of a build without the run skipping.
+# comment lines, a comment byte inside a value and a comment byte right after a delimiter. The projections skip runs
+# with one call (a, l, c, b, a and l, c and e, count) or do not (g, f, f and g, d and h), as in
+# test_block_scan_skip_runs.test. Expected results are those of a build without the run skipping.
 
 # file pipe2, strict, counting
 statement error

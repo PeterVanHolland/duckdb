@@ -245,7 +245,7 @@ public:
 	unsafe_unique_array<idx_t> unprojected_run;
 	//! The shortest run of unprojected columns that is skipped with one call
 	static constexpr idx_t MIN_SKIPPED_RUN = 6;
-	//! Whether the scan has such a run
+	//! Whether the scan skips runs with one call: its runs of that length hold more than half of the columns
 	bool skips_runs = false;
 	idx_t chunk_col_id = 0;
 
@@ -291,7 +291,7 @@ public:
 	}
 	static inline void SkipValue(StringValueResult &result, const idx_t buffer_pos);
 	static inline bool AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos);
-	//! Whether the scan has a run of unprojected columns that the block scan skips with one call
+	//! Whether the block scan skips the runs of unprojected columns of this scan with one call
 	static inline bool SkipsRuns(const StringValueResult &result) {
 		return result.skips_runs;
 	}
