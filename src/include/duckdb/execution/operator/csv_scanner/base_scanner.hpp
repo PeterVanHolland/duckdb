@@ -700,7 +700,7 @@ protected:
 				const uint64_t structural = delimiters | row_ends;
 				const uint64_t row_starts = (row_ends << row_end_bytes) | (fields_done == 0 ? 1 : 0);
 				const uint64_t first_column = (structural - row_starts) & ~structural;
-				if ((SwarBlock::PackFlagBytes(window) & first_column) != 0) {
+				if ((SwarBlock::HighBitMask(window) & first_column) != 0) {
 					break;
 				}
 			}

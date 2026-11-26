@@ -127,13 +127,25 @@ struct SwarBlock {
 		return x ^ t ^ (t << 28);
 	}
 
-	//! The bit mask of the high bits of the bytes of a block, in byte order: of 0x80 flag bytes, or of the non ASCII
-	//! bytes of data
+	//! The bit mask of the 0x80 flags of a block of flag bytes, in byte order
 	static inline uint64_t PackFlagBytes(const uint8_t *flags) {
 		// word i contributes bit i of every byte, the transpose puts the bytes of word i at bits i * 8 to i * 8 + 7
 		uint64_t transposed = 0;
 		for (idx_t i = 0; i < WORDS; i++) {
 			auto word = Load<uint64_t>(const_data_ptr_cast(flags + i * SwarWord::SIZE));
+#if DUCKDB_IS_BIG_ENDIAN
+			word = BSwap(word);
+#endif
+			transposed |= word >> (SwarWord::SIZE - 1 - i);
+		}
+		return TransposeBits(transposed);
+	}
+
+	//! The bit mask of the bytes of a block that have their high bit set, in byte order
+	static inline uint64_t HighBitMask(const_data_ptr_t block) {
+		uint64_t transposed = 0;
+		for (idx_t i = 0; i < WORDS; i++) {
+			auto word = Load<uint64_t>(block + i * SwarWord::SIZE);
 #if DUCKDB_IS_BIG_ENDIAN
 			word = BSwap(word);
 #endif
