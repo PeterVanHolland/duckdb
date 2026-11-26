@@ -1,0 +1,39 @@
+# name: test/sql/copy/csv/test_block_scan_skip_runs_crlf_rejects.test
+# description: Runs of unprojected columns in a CRLF file: the rejects of the rows keep their positions
+# group: [csv]
+
+# the fixture depends on exact byte offsets
+require notwindows
+
+# the reported line start of a CRLF row depends on where the chunk before it ends, so the positions need the default chunk size
+require vector_size 2048
+
+# CRLF, rejects of the rows, selecting a
+statement ok
+CREATE OR REPLACE TEMP TABLE t_rej_CRLF_a AS SELECT a FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', new_line='\r\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_CRLF_a', rejects_scan='scan_rej_CRLF_a')
+
+query IIIIII
+SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_CRLF_a ORDER BY ALL
+----
+7	220	244	8	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
+7	220	244	9	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
+7	220	244	10	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
+7	220	244	11	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
+8	244	279	13	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	244	285	14	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	244	292	15	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+
+# CRLF, rejects of the rows, selecting l
+statement ok
+CREATE OR REPLACE TEMP TABLE t_rej_CRLF_l AS SELECT l FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf.csv', delim=',', new_line='\r\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, store_rejects=true, rejects_table='rej_CRLF_l', rejects_scan='scan_rej_CRLF_l')
+
+query IIIIII
+SELECT line, line_byte_position, byte_position, column_idx, error_type, replace(replace(csv_line, chr(10), '<LF>'), chr(13), '<CR>') FROM rej_CRLF_l ORDER BY ALL
+----
+7	220	244	8	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
+7	220	244	9	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
+7	220	244	10	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
+7	220	244	11	MISSING COLUMNS	<LF>7,b7,c7,d7,e7,f7,g7,h7
+8	244	279	13	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	244	285	14	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3
+8	244	292	15	TOO MANY COLUMNS	<LF>8,b8,c8,d8,e8,f8,g8,h8,i8,j8,k8,l8,extra,extra2,extra3

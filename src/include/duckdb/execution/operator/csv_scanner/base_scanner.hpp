@@ -105,6 +105,17 @@ public:
 	static inline bool AddRowWithoutValue(T &result, const idx_t buffer_pos) {
 		return false;
 	}
+	template <class T>
+	static inline bool SkipsRuns(const T &result) {
+		return false;
+	}
+	template <class T>
+	static inline idx_t SkippableRun(const T &result, const idx_t buffer_pos) {
+		return 0;
+	}
+	template <class T>
+	static inline void SkipValues(T &result, const idx_t count, const idx_t buffer_pos) {
+	}
 	//! Whether a value of this result may skip its UTF-8 check, so the block scan tracks ASCII blocks
 	template <class T>
 	static inline bool TracksAscii(const T &result) {
@@ -364,13 +375,15 @@ protected:
 		candidates &= ~(((uint64_t(1) << (to - from)) - 1) << (from - pos));
 	}
 
-	//! The delimiter at `at`, `before` is the state before it, `ascii` whether the value lies in ASCII blocks
-	template <class T, bool TRACK_ASCII>
-	void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii) {
+	//! The delimiter at `at`, `before` is the state before it, `ascii` whether the value lies in ASCII blocks. A scan
+	//! that skips runs knows from SkippableRun whether the value is skipped and passes it as `skip`
+	template <class T, bool TRACK_ASCII, bool SKIP_RUNS = false>
+	void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii, const bool skip = false) {
+		D_ASSERT(!SKIP_RUNS || skip == T::CanSkipValue(result));
 		states.states[0] = before;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = at;
-		if (T::CanSkipValue(result)) {
+		if (SKIP_RUNS ? skip : T::CanSkipValue(result)) {
 			T::SkipValue(result, at);
 		} else {
 			if (TRACK_ASCII) {
@@ -381,6 +394,53 @@ protected:
 				result.ascii_value = false;
 			}
 		}
+	}
+
+	//! The delimiter at `at` (the last byte of a multi byte delimiter) and the delimiters of the unprojected columns
+	//! that follow it in the block, `run` at most, with one bookkeeping call. `last` is the first byte after the
+	//! previous structural byte. Returns the first byte after the last consumed delimiter
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT>
+	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t last,
+	                        uint64_t &candidates, const idx_t pos, const idx_t limit) {
+		idx_t last_delimiter = at;
+		CSVState before_last = before;
+		idx_t consumed = 1;
+		while (consumed < run && candidates) {
+			const idx_t next = pos + CountZeros<uint64_t>::Trailing(candidates);
+			if (next >= limit) {
+				break;
+			}
+			const auto byte = static_cast<uint8_t>(buffer_handle_ptr[next]);
+			if (byte != block_delimiter) {
+				if (byte == '\n' || byte == '\r' || byte == block_quote || (COMMENT && byte == block_comment)) {
+					break;
+				}
+				// a false candidate of the mask, data
+				candidates &= candidates - 1;
+				continue;
+			}
+			if (MULTI_BYTE_DELIMITER) {
+				const idx_t delimiter_bytes = DelimiterBytes(next, limit);
+				if (delimiter_bytes == 0) {
+					break;
+				}
+				ClearCandidates(candidates, pos, next, next + delimiter_bytes);
+				before_last = DelimiterPenultimateState();
+				last_delimiter = next + delimiter_bytes - 1;
+			} else {
+				candidates &= candidates - 1;
+				before_last = StateAfterData(CSVState::DELIMITER, last_delimiter + 1, next);
+				last_delimiter = next;
+			}
+			consumed++;
+		}
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[1] == CSVState::DELIMITER);
+		D_ASSERT(ReplayStates(last, last_delimiter + 1).states[0] == before_last);
+		states.states[0] = before_last;
+		states.states[1] = CSVState::DELIMITER;
+		iterator.pos.buffer_pos = last_delimiter;
+		T::SkipValues(result, consumed, last_delimiter);
+		return last_delimiter + 1;
 	}
 
 	//! The row end at `at`, `before` is the state before it, `ascii` whether the last value lies in ASCII blocks.
@@ -437,22 +497,23 @@ protected:
 		return false;
 	}
 
-	//! Chooses the ProcessBlocks instantiation of the dialect, TRACK_ASCII is the scan's
-	template <class T, bool TRACK_ASCII>
+	//! Chooses the ProcessBlocks instantiation of the dialect, TRACK_ASCII and SKIP_RUNS are the scan's
+	template <class T, bool TRACK_ASCII, bool SKIP_RUNS>
 	bool ProcessBlocksOfDialect(T &result, const idx_t to_pos) {
 		if (block_comment != '\0') {
-			return block_multi_byte_delimiter ? ProcessBlocks<T, true, true, TRACK_ASCII>(result, to_pos)
-			                                  : ProcessBlocks<T, false, true, TRACK_ASCII>(result, to_pos);
+			return block_multi_byte_delimiter ? ProcessBlocks<T, true, true, TRACK_ASCII, SKIP_RUNS>(result, to_pos)
+			                                  : ProcessBlocks<T, false, true, TRACK_ASCII, SKIP_RUNS>(result, to_pos);
 		}
-		return block_multi_byte_delimiter ? ProcessBlocks<T, true, false, TRACK_ASCII>(result, to_pos)
-		                                  : ProcessBlocks<T, false, false, TRACK_ASCII>(result, to_pos);
+		return block_multi_byte_delimiter ? ProcessBlocks<T, true, false, TRACK_ASCII, SKIP_RUNS>(result, to_pos)
+		                                  : ProcessBlocks<T, false, false, TRACK_ASCII, SKIP_RUNS>(result, to_pos);
 	}
 
 	//! Scans unquoted fields and quoted values in their canonical form, and preserves the states when handing back
 	//! to Process. Returns true when the result is full. Repeated SetQuoted calls may be skipped because the setter
-	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's and TRACK_ASCII the scan's (a projected string
-	//! column is validated), so dialects and scans without them pay nothing for them
-	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool TRACK_ASCII>
+	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, TRACK_ASCII (a projected string column is
+	//! validated) and SKIP_RUNS (runs of unprojected columns hold most of the columns) the scan's, so dialects and
+	//! scans without them pay nothing for them
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool TRACK_ASCII, bool SKIP_RUNS>
 	DUCKDB_BLOCK_SCAN_ALIGNED bool ProcessBlocks(T &result, const idx_t to_pos) {
 		const auto buffer = buffer_handle_ptr;
 		// the first byte not consumed, and the first byte after the last structural or special byte
@@ -580,17 +641,30 @@ protected:
 						D_ASSERT(ReplayStates(last, at + delimiter_bytes).states[1] == CSVState::DELIMITER);
 						D_ASSERT(ReplayStates(last, at + delimiter_bytes).states[0] == DelimiterPenultimateState());
 						ClearCandidates(candidates, pos, at + 1, at + delimiter_bytes);
-						BlockDelimiter<T, TRACK_ASCII>(result, at + delimiter_bytes - 1, DelimiterPenultimateState(),
-						                               value_ascii);
+						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
+						if (run > 1) {
+							last = BlockDelimiterRun<T, true, COMMENT>(result, at + delimiter_bytes - 1,
+							                                           DelimiterPenultimateState(), run, last,
+							                                           candidates, pos, limit);
+						} else {
+							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(
+							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), value_ascii, run == 1);
+							last = at + delimiter_bytes;
+						}
 						value_ascii = block_ascii;
-						last = at + delimiter_bytes;
 						continue;
 					}
 					D_ASSERT(ReplayStates(last, at + 1).states[1] == CSVState::DELIMITER);
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
-					BlockDelimiter<T, TRACK_ASCII>(result, at, before, value_ascii);
+					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
+					if (run > 1) {
+						last =
+						    BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, last, candidates, pos, limit);
+					} else {
+						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(result, at, before, value_ascii, run == 1);
+						last = at + 1;
+					}
 					value_ascii = block_ascii;
-					last = at + 1;
 					continue;
 				}
 				if (COMMENT && byte == block_comment) {
@@ -673,8 +747,12 @@ protected:
 		skipper.SetBuffer(*cur_buffer_handle);
 		while (iterator.pos.buffer_pos < to_pos) {
 			if (T::BLOCK_SCAN && block_scan && BlockScanPossible(result)) {
-				const bool full = T::TracksAscii(result) ? ProcessBlocksOfDialect<T, true>(result, to_pos)
-				                                         : ProcessBlocksOfDialect<T, false>(result, to_pos);
+				const bool full =
+				    T::TracksAscii(result)
+				        ? (T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, true, true>(result, to_pos)
+				                                : ProcessBlocksOfDialect<T, true, false>(result, to_pos))
+				        : (T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, false, true>(result, to_pos)
+				                                : ProcessBlocksOfDialect<T, false, false>(result, to_pos));
 				if (full) {
 					bytes_read = iterator.pos.buffer_pos - start_pos;
 					return;
