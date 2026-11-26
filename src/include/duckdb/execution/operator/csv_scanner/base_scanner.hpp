@@ -15,11 +15,14 @@
 #include "duckdb/common/helper.hpp"
 #include "duckdb/execution/operator/csv_scanner/csv_byte_skipper.hpp"
 
-// the block scan loop's speed depends on where its code starts within a 64 byte line, so the function is aligned
+// the block scan loop's speed depends on where its code starts within a 64 byte line, so the function is aligned; the
+// hooks it calls per structural byte are inlined into it
 #if defined(__GNUC__)
 #define DUCKDB_BLOCK_SCAN_ALIGNED __attribute__((aligned(64)))
+#define DUCKDB_BLOCK_SCAN_INLINE  inline __attribute__((always_inline))
 #else
 #define DUCKDB_BLOCK_SCAN_ALIGNED
+#define DUCKDB_BLOCK_SCAN_INLINE inline
 #endif
 
 namespace duckdb {
@@ -109,12 +112,26 @@ public:
 	static inline bool SkipsRuns(const T &result) {
 		return false;
 	}
+	//! Results that can count the rows of plain blocks from the masks alone set this
+	static constexpr bool CAN_COUNT_ROWS = false;
+	template <class T>
+	static inline bool CountsRowsOnly(const T &result) {
+		return false;
+	}
+	template <class T>
+	static inline bool AddCountedRows(T &result, const idx_t rows, const idx_t row_end, const idx_t after_row_end) {
+		return false;
+	}
 	template <class T>
 	static inline idx_t SkippableRun(const T &result, const idx_t buffer_pos) {
 		return 0;
 	}
 	template <class T>
 	static inline void SkipValues(T &result, const idx_t count, const idx_t buffer_pos) {
+	}
+	//! A scan that reads no column validates the first value of a row before the block scan skips it
+	template <class T>
+	static inline void ValidateSkippedFirstValue(T &result, const idx_t buffer_pos, const bool row_end) {
 	}
 	//! Whether a value of this result may skip its UTF-8 check, so the block scan tracks ASCII blocks
 	template <class T>
@@ -376,14 +393,19 @@ protected:
 	}
 
 	//! The delimiter at `at`, `before` is the state before it, `ascii` whether the value lies in ASCII blocks. A scan
-	//! that skips runs knows from SkippableRun whether the value is skipped and passes it as `skip`
-	template <class T, bool TRACK_ASCII, bool SKIP_RUNS = false>
-	void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii, const bool skip = false) {
+	//! that skips runs knows from SkippableRun whether the value is skipped and passes it as `skip`; a scan that
+	//! reads no column (COUNT_ROWS) validates the first value of a row before skipping it
+	template <class T, bool TRACK_ASCII, bool SKIP_RUNS = false, bool COUNT_ROWS = false>
+	DUCKDB_BLOCK_SCAN_INLINE void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii,
+	                                             const bool skip = false) {
 		D_ASSERT(!SKIP_RUNS || skip == T::CanSkipValue(result));
 		states.states[0] = before;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = at;
 		if (SKIP_RUNS ? skip : T::CanSkipValue(result)) {
+			if (COUNT_ROWS) {
+				T::ValidateSkippedFirstValue(result, at, false);
+			}
 			T::SkipValue(result, at);
 		} else {
 			if (TRACK_ASCII) {
@@ -399,7 +421,7 @@ protected:
 	//! The delimiter at `at` (the last byte of a multi byte delimiter) and the delimiters of the unprojected columns
 	//! that follow it in the block, `run` at most, with one bookkeeping call. `last` is the first byte after the
 	//! previous structural byte. Returns the first byte after the last consumed delimiter
-	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT>
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool COUNT_ROWS = false>
 	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t last,
 	                        uint64_t &candidates, const idx_t pos, const idx_t limit) {
 		idx_t last_delimiter = at;
@@ -439,13 +461,16 @@ protected:
 		states.states[0] = before_last;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = last_delimiter;
+		if (COUNT_ROWS) {
+			T::ValidateSkippedFirstValue(result, at, false);
+		}
 		T::SkipValues(result, consumed, last_delimiter);
 		return last_delimiter + 1;
 	}
 
 	//! The row end at `at`, `before` is the state before it, `ascii` whether the last value lies in ASCII blocks.
 	//! Returns true when the result is full
-	template <class T, bool TRACK_ASCII>
+	template <class T, bool TRACK_ASCII, bool COUNT_ROWS = false>
 	bool BlockRowEnd(T &result, const idx_t at, const CSVState before, const bool crlf, uint64_t &candidates,
 	                 const idx_t pos, const bool ascii) {
 		states.states[0] = before;
@@ -453,6 +478,9 @@ protected:
 		iterator.pos.buffer_pos = at;
 		bool full;
 		if (T::CanSkipValue(result)) {
+			if (COUNT_ROWS) {
+				T::ValidateSkippedFirstValue(result, at, true);
+			}
 			full = T::AddRowWithoutValue(result, at);
 		} else {
 			if (TRACK_ASCII) {
@@ -497,23 +525,311 @@ protected:
 		return false;
 	}
 
-	//! Chooses the ProcessBlocks instantiation of the dialect, TRACK_ASCII and SKIP_RUNS are the scan's
-	template <class T, bool TRACK_ASCII, bool SKIP_RUNS>
-	bool ProcessBlocksOfDialect(T &result, const idx_t to_pos) {
-		if (block_comment != '\0') {
-			return block_multi_byte_delimiter ? ProcessBlocks<T, true, true, TRACK_ASCII, SKIP_RUNS>(result, to_pos)
-			                                  : ProcessBlocks<T, false, true, TRACK_ASCII, SKIP_RUNS>(result, to_pos);
+	//! The bits of a 64 bit mask at positions [from, to)
+	static uint64_t BitRange(const idx_t from, const idx_t to) {
+		if (from >= to || from >= 64) {
+			return 0;
 		}
-		return block_multi_byte_delimiter ? ProcessBlocks<T, true, false, TRACK_ASCII, SKIP_RUNS>(result, to_pos)
-		                                  : ProcessBlocks<T, false, false, TRACK_ASCII, SKIP_RUNS>(result, to_pos);
+		const uint64_t below_to = to >= 64 ? ~uint64_t(0) : (uint64_t(1) << to) - 1;
+		return below_to & ~((uint64_t(1) << from) - 1);
+	}
+
+	//! The state pair right after the structural byte at `at` (a delimiter when `delimiter`, else a row end), given
+	//! the structural byte `previous` before it in the same block (`none` when there is none, then the pair before
+	//! `last` applies) and whether that previous byte was a delimiter
+	//! `pair_consumed` is false when the line feed of a CRLF row end at `at` is left to the next chunk
+	CSVStates StatesAfterStructural(const idx_t at, const bool delimiter, const idx_t previous, const bool none,
+	                                const bool previous_delimiter, const idx_t last, const bool pair_consumed) const {
+		CSVStates after;
+		const CSVState before_previous =
+		    none ? states.states[1] : (previous_delimiter ? CSVState::DELIMITER : CSVState::RECORD_SEPARATOR);
+		const idx_t from = none ? last : previous + (previous_delimiter ? 1 : (block_crlf ? 2 : 1));
+		after.states[0] = StateAfterData(before_previous, from, at);
+		after.states[1] =
+		    delimiter ? CSVState::DELIMITER : (block_crlf ? CSVState::CARRIAGE_RETURN : CSVState::RECORD_SEPARATOR);
+		if (!delimiter && block_crlf && pair_consumed) {
+			// the pair after the line feed of the pair
+			after.states[0] = CSVState::CARRIAGE_RETURN;
+			after.states[1] = CSVState::RECORD_SEPARATOR;
+		}
+		return after;
+	}
+
+	//! The delimiter and row end masks of a counted block and its position; empty masks mean no block
+	struct CountedBlock {
+		uint64_t delimiters = 0;
+		uint64_t row_ends = 0;
+		idx_t pos = 0;
+
+		bool HasStructural() const {
+			return (delimiters | row_ends) != 0;
+		}
+	};
+
+	//! The open first value whose bytes before the block scan were checked for high bits, and the outcome
+	struct CheckedValue {
+		idx_t buffer_idx = DConstants::INVALID_INDEX;
+		idx_t start = 0;
+		idx_t end = 0;
+		bool high_bit = false;
+	};
+	CheckedValue checked_value;
+
+	//! The blocks left to the block scan before the next attempt to count rows from masks, and the wait after the
+	//! next attempt that counts nothing, so that a file whose blocks never qualify does not pay for an attempt per
+	//! block
+	idx_t count_wait = 0;
+	idx_t next_count_wait = 0;
+	static constexpr idx_t MAX_COUNT_WAIT = 32;
+
+	//! The state pair after the last structural byte of the counted blocks and the position after that byte, from
+	//! the last two counted blocks with structural bytes; `last` is the hand-over position before the counting. When
+	//! the result is full, a CRLF row end hands over after its carriage return, as the byte path does
+	void StatesAfterCountedBlocks(const CountedBlock &latest, const CountedBlock &earlier, const idx_t last,
+	                              const bool full, CSVStates &after, idx_t &after_pos) const {
+		const uint64_t structural = latest.delimiters | latest.row_ends;
+		D_ASSERT(structural != 0);
+		const idx_t at_bit = 63 - CountZeros<uint64_t>::Leading(structural);
+		const bool delimiter = ((latest.delimiters >> at_bit) & 1) != 0;
+		// the structural byte before it decides the state of the data between the two
+		bool none = false;
+		idx_t previous = 0;
+		bool previous_delimiter = false;
+		const uint64_t before = structural & BitRange(0, at_bit);
+		if (before != 0) {
+			const idx_t bit = 63 - CountZeros<uint64_t>::Leading(before);
+			previous = latest.pos + bit;
+			previous_delimiter = ((latest.delimiters >> bit) & 1) != 0;
+		} else if (earlier.HasStructural()) {
+			const idx_t bit = 63 - CountZeros<uint64_t>::Leading(earlier.delimiters | earlier.row_ends);
+			previous = earlier.pos + bit;
+			previous_delimiter = ((earlier.delimiters >> bit) & 1) != 0;
+		} else {
+			none = true;
+		}
+		after = StatesAfterStructural(latest.pos + at_bit, delimiter, previous, none, previous_delimiter, last, !full);
+		after_pos = latest.pos + at_bit + (delimiter ? 1 : (block_crlf && !full ? 2 : 1));
+	}
+
+	//! The exact delimiter and row end masks of a block for the row count. False when a carriage return or a line
+	//! feed of a CRLF file does not pair inside the block; the row ends of such a file are the carriage returns
+	bool RowCountBlockMasks(const_data_ptr_t window, const uint8_t row_end_byte, const uint8_t other_byte,
+	                        uint64_t &delimiters, uint64_t &row_ends) const {
+		uint64_t line_feeds;
+		if (!block_crlf) {
+			SwarBlock::RowCountMasks<false>(window, block_delimiter, row_end_byte, other_byte, delimiters, row_ends,
+			                                line_feeds);
+			return true;
+		}
+		SwarBlock::RowCountMasks<true>(window, block_delimiter, row_end_byte, other_byte, delimiters, row_ends,
+		                               line_feeds);
+		const uint64_t pairs = row_ends & (line_feeds >> 1);
+		if ((row_ends & ~pairs) != 0 || (line_feeds & ~(pairs << 1)) != 0) {
+			return false;
+		}
+		row_ends = pairs;
+		return true;
+	}
+
+	//! Counts the rows of the plain 64 byte blocks from `pos` on for a scan that reads no column: a block without a
+	//! quote, a stray row end byte or a non ASCII byte in a first column, whose rows all have the right number of
+	//! fields, no empty line and no line over the maximum size, is counted from its delimiter and row end masks
+	//! without a visit to its other bytes. Stops at the first block or row that needs the byte by byte path and
+	//! leaves `states`, `last` and the result positioned for it. Returns the position reached, which is `pos` when
+	//! nothing was counted; `full` is set when the result is full
+	template <class T>
+	idx_t CountRowsInPlainBlocks(T &result, idx_t pos, const idx_t to_pos, idx_t &last, bool &full) {
+		const auto buffer = buffer_handle_ptr;
+		const idx_t columns = result.number_of_columns;
+		const idx_t max_line_size = state_machine->options.maximum_line_size.GetValue();
+		const idx_t row_end_bytes = block_crlf ? 2 : 1;
+		if (result.current_errors.IsErrorInLine() || result.quoted_new_line) {
+			// the open row already has an error on record, or a quoted newline waits for the byte path's check of
+			// the next row: the byte path finishes and reports it
+			return pos;
+		}
+		if (result.cur_col_id == 0 && result.last_position.buffer_pos < pos) {
+			// the first value of the open row began before `pos`, in bytes the byte path has not validated yet; the
+			// bytes checked are remembered, so a long value is checked once and not once per block
+			if (result.last_position.buffer_idx != iterator.pos.buffer_idx) {
+				return pos;
+			}
+			idx_t from = result.last_position.buffer_pos;
+			if (checked_value.buffer_idx == iterator.pos.buffer_idx && checked_value.start == from) {
+				if (checked_value.high_bit) {
+					return pos;
+				}
+				from = checked_value.end;
+			} else {
+				checked_value = {iterator.pos.buffer_idx, from, from, false};
+			}
+			for (idx_t i = from; i < pos; i++) {
+				if (static_cast<uint8_t>(buffer[i]) & 0x80) {
+					checked_value.high_bit = true;
+					return pos;
+				}
+			}
+			checked_value.end = pos;
+		}
+		const idx_t buffer_size = cur_buffer_handle->actual_size;
+		// the row end byte is the carriage return of a pair; a line feed is then the other byte, exact mask needed
+		const uint8_t row_end_byte = block_cr || block_crlf ? '\r' : '\n';
+		const uint8_t other_byte = block_cr || block_crlf ? '\n' : '\r';
+		// the byte besides the quote that a countable block may not hold: the other row end byte, which a CRLF file
+		// has in every pair and checks with the pairs
+		const uint8_t stray_byte = block_crlf ? block_quote : other_byte;
+		// the open row: the fields it has done, its start (the hand-over position, when no field is done yet) and
+		// the row end before it for the line size, when that lies in this buffer
+		idx_t fields_done = result.cur_col_id;
+		idx_t row_start_pos = last;
+		bool have_previous_end = result.current_line_position.end.buffer_idx == iterator.pos.buffer_idx;
+		idx_t previous_end = have_previous_end ? result.current_line_position.end.buffer_pos : 0;
+		// the last two counted blocks with structural bytes, for the states at the hand-over
+		CountedBlock latest;
+		CountedBlock earlier;
+#ifdef DEBUG
+		const idx_t last_before = last;
+#endif
+		// whether the byte path resumes at the hand-over position (after counted rows) or at the block reached
+		bool resume_at_last = false;
+		bool stop = false;
+		while (pos + SwarBlock::SIZE <= to_pos && pos + SwarBlock::SIZE <= buffer_size) {
+			const auto window = const_data_ptr_cast(buffer + pos);
+			uint64_t delimiters;
+			uint64_t row_ends;
+			if (!SwarBlock::HasHighBitOrBytes(window, block_quote, stray_byte)) {
+				// the common block: ASCII, no quote and no stray row end byte
+				if (!RowCountBlockMasks(window, row_end_byte, other_byte, delimiters, row_ends)) {
+					break;
+				}
+			} else {
+				// a quote or a stray row end byte makes the block the byte path's
+				if (SwarBlock::HasBytes(window, block_quote, stray_byte) ||
+				    !RowCountBlockMasks(window, row_end_byte, other_byte, delimiters, row_ends)) {
+					break;
+				}
+				// a non ASCII byte does so only in a first column, the one column this scan validates. Its bytes run
+				// from every row start (and from the block start, when the open row has no field yet) to the next
+				// structural byte, which the subtraction borrows from
+				const uint64_t structural = delimiters | row_ends;
+				const uint64_t row_starts = (row_ends << row_end_bytes) | (fields_done == 0 ? 1 : 0);
+				const uint64_t first_column = (structural - row_starts) & ~structural;
+				if ((SwarBlock::HighBitMask(window) & first_column) != 0) {
+					break;
+				}
+			}
+			// the rows ending in this block
+			uint64_t pending = row_ends;
+			idx_t row_start = 0;
+			idx_t rows = 0;
+			idx_t last_row_end = 0;
+			while (pending != 0) {
+				const idx_t end = CountZeros<uint64_t>::Trailing(pending);
+				pending &= pending - 1;
+				const idx_t fields = fields_done + SwarWord::CountSetBits(delimiters & BitRange(row_start, end)) + 1;
+				const idx_t end_pos = pos + end;
+				// an empty line is a row end at the start of its row; the line size is the byte path's, from the line
+				// break before the row
+				const bool empty_line = fields_done == 0 && end_pos == row_start_pos;
+				idx_t line_size;
+				if (have_previous_end) {
+					line_size = end_pos - previous_end;
+				} else {
+					// the row end before this row is in an earlier buffer
+					line_size = LinePosition(iterator.pos.buffer_idx, end_pos, result.buffer_size) -
+					            result.current_line_position.end;
+				}
+				if (fields != columns || empty_line || line_size > max_line_size) {
+					// a row with another field count, an empty line or an oversized line: the byte path reports it
+					stop = true;
+					break;
+				}
+				rows++;
+				last_row_end = end;
+				row_start = end + row_end_bytes;
+				row_start_pos = end_pos + row_end_bytes;
+				fields_done = 0;
+				have_previous_end = true;
+				previous_end = end_pos;
+				if (static_cast<idx_t>(result.number_of_rows) + rows >= result.result_size) {
+					full = true;
+					break;
+				}
+			}
+			if (rows > 0) {
+				lines_read += rows;
+				T::AddCountedRows(result, rows, pos + last_row_end, pos + last_row_end + row_end_bytes);
+			}
+			// the delimiters after the last row end add fields to the open row; a row that reaches the declared width
+			// before its end has surplus fields, which the byte path checks value by value
+			const idx_t trailing_fields = SwarWord::CountSetBits(delimiters & BitRange(row_start, SwarBlock::SIZE));
+			if (fields_done + trailing_fields >= columns) {
+				stop = true;
+			}
+			if (stop || full) {
+				if (rows > 0) {
+					// the byte path takes over after the last counted row end
+					if (latest.HasStructural()) {
+						earlier = latest;
+					}
+					latest = {delimiters & BitRange(0, last_row_end + 1), row_ends & BitRange(0, last_row_end + 1),
+					          pos};
+					resume_at_last = true;
+				}
+				break;
+			}
+			// the whole block is counted, the open row carries its fields into the next block
+			fields_done += trailing_fields;
+			if ((delimiters | row_ends) != 0) {
+				earlier = latest;
+				latest = {delimiters, row_ends, pos};
+			}
+			pos += SwarBlock::SIZE;
+		}
+		if (latest.HasStructural()) {
+			CSVStates after;
+			idx_t after_pos;
+			StatesAfterCountedBlocks(latest, earlier, last, full, after, after_pos);
+#ifdef DEBUG
+			const CSVStates replay = ReplayStates(last_before, after_pos);
+			D_ASSERT(replay.states[0] == after.states[0] && replay.states[1] == after.states[1]);
+#endif
+			states = after;
+			last = after_pos;
+			result.cur_col_id = fields_done;
+			result.last_position = {iterator.pos.buffer_idx, last, result.buffer_size};
+		}
+		if (resume_at_last) {
+			iterator.pos.buffer_pos = last;
+			return last;
+		}
+		// the bytes between the hand-over position and the block reached are data
+		D_ASSERT(ReplayStates(last, pos).states[1] == StateAfterData(states.states[1], last, pos));
+		return pos;
+	}
+
+	//! Chooses the ProcessBlocks instantiation of the dialect; TRACK_ASCII, SKIP_RUNS and COUNT_ROWS are the scan's
+	template <class T, bool TRACK_ASCII, bool SKIP_RUNS, bool COUNT_ROWS>
+	bool ProcessBlocksOfDialect(T &result, const idx_t to_pos) {
+		constexpr bool count_rows = COUNT_ROWS && T::CAN_COUNT_ROWS;
+		if (block_comment != '\0') {
+			return block_multi_byte_delimiter
+			           ? ProcessBlocks<T, true, true, TRACK_ASCII, SKIP_RUNS, count_rows>(result, to_pos)
+			           : ProcessBlocks<T, false, true, TRACK_ASCII, SKIP_RUNS, count_rows>(result, to_pos);
+		}
+		return block_multi_byte_delimiter
+		           ? ProcessBlocks<T, true, false, TRACK_ASCII, SKIP_RUNS, count_rows>(result, to_pos)
+		           : ProcessBlocks<T, false, false, TRACK_ASCII, SKIP_RUNS, count_rows>(result, to_pos);
 	}
 
 	//! Scans unquoted fields and quoted values in their canonical form, and preserves the states when handing back
 	//! to Process. Returns true when the result is full. Repeated SetQuoted calls may be skipped because the setter
-	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's, TRACK_ASCII (a projected string column is
-	//! validated) and SKIP_RUNS (runs of unprojected columns hold most of the columns) the scan's, so dialects and
-	//! scans without them pay nothing for them
-	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool TRACK_ASCII, bool SKIP_RUNS>
+	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's; TRACK_ASCII (a projected string column is
+	//! validated), SKIP_RUNS (runs of unprojected columns hold most of the columns) and COUNT_ROWS (the scan reads
+	//! no column: the first value of a row is validated where it is skipped, and without a comment byte or a multi
+	//! byte delimiter the plain blocks are counted from masks) are the scan's, so dialects and scans without them pay
+	//! nothing for them
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool TRACK_ASCII, bool SKIP_RUNS, bool COUNT_ROWS>
 	DUCKDB_BLOCK_SCAN_ALIGNED bool ProcessBlocks(T &result, const idx_t to_pos) {
 		const auto buffer = buffer_handle_ptr;
 		// the first byte not consumed, and the first byte after the last structural or special byte
@@ -530,7 +846,32 @@ protected:
 		bool block_ascii = false;
 		uint64_t candidates;
 		idx_t block_end;
-		while (pos < to_pos && skipper.BlockCandidates(pos, candidates, block_end)) {
+		while (pos < to_pos) {
+			if constexpr (COUNT_ROWS && !MULTI_BYTE_DELIMITER && !COMMENT) {
+				if (!quoted && count_wait > 0) {
+					count_wait--;
+				} else if (!quoted) {
+					bool full = false;
+					const idx_t reached = CountRowsInPlainBlocks(result, pos, to_pos, last, full);
+					if (reached == pos) {
+						// attempts that count nothing in a row wait 0, 1, 2, 4 ... blocks before the next one
+						count_wait = next_count_wait;
+						next_count_wait = MinValue<idx_t>(MAX_COUNT_WAIT, MaxValue<idx_t>(next_count_wait * 2, 1));
+					} else {
+						next_count_wait = 0;
+					}
+					pos = reached;
+					if (full) {
+						return true;
+					}
+					if (pos >= to_pos) {
+						break;
+					}
+				}
+			}
+			if (!skipper.BlockCandidates(pos, candidates, block_end)) {
+				break;
+			}
 			const idx_t limit = MinValue<idx_t>(block_end, to_pos);
 			block_ascii =
 			    track_ascii && !SwarBlock::HasHighBits(const_data_ptr_cast(buffer + block_end - SwarBlock::SIZE));
@@ -615,15 +956,15 @@ protected:
 						if (MULTI_BYTE_DELIMITER) {
 							ClearCandidates(candidates, pos, at + 2, at + 1 + delimiter_bytes);
 						}
-						BlockDelimiter<T, TRACK_ASCII>(
+						BlockDelimiter<T, TRACK_ASCII, false, COUNT_ROWS>(
 						    result, at + delimiter_bytes,
 						    MULTI_BYTE_DELIMITER ? DelimiterPenultimateState() : CSVState::UNQUOTED, value_ascii);
 						value_ascii = block_ascii;
 						last = at + 1 + delimiter_bytes;
 						continue;
 					}
-					if (BlockRowEnd<T, TRACK_ASCII>(result, at + 1, CSVState::UNQUOTED, row_end_bytes == 2, candidates,
-					                                pos, value_ascii)) {
+					if (BlockRowEnd<T, TRACK_ASCII, COUNT_ROWS>(result, at + 1, CSVState::UNQUOTED, row_end_bytes == 2,
+					                                            candidates, pos, value_ascii)) {
 						return true;
 					}
 					value_ascii = block_ascii;
@@ -643,11 +984,11 @@ protected:
 						ClearCandidates(candidates, pos, at + 1, at + delimiter_bytes);
 						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
 						if (run > 1) {
-							last = BlockDelimiterRun<T, true, COMMENT>(result, at + delimiter_bytes - 1,
-							                                           DelimiterPenultimateState(), run, last,
-							                                           candidates, pos, limit);
+							last = BlockDelimiterRun<T, true, COMMENT, COUNT_ROWS>(result, at + delimiter_bytes - 1,
+							                                                       DelimiterPenultimateState(), run,
+							                                                       last, candidates, pos, limit);
 						} else {
-							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(
+							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(
 							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), value_ascii, run == 1);
 							last = at + delimiter_bytes;
 						}
@@ -658,10 +999,11 @@ protected:
 					D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
 					if (run > 1) {
-						last =
-						    BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, last, candidates, pos, limit);
+						last = BlockDelimiterRun<T, false, COMMENT, COUNT_ROWS>(result, at, before, run, last,
+						                                                        candidates, pos, limit);
 					} else {
-						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(result, at, before, value_ascii, run == 1);
+						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(result, at, before, value_ascii,
+						                                                      run == 1);
 						last = at + 1;
 					}
 					value_ascii = block_ascii;
@@ -709,7 +1051,8 @@ protected:
 				D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 				D_ASSERT(ReplayStates(last, at + 1).states[1] ==
 				         (row_end_bytes == 2 ? CSVState::CARRIAGE_RETURN : CSVState::RECORD_SEPARATOR));
-				if (BlockRowEnd<T, TRACK_ASCII>(result, at, before, row_end_bytes == 2, candidates, pos, value_ascii)) {
+				if (BlockRowEnd<T, TRACK_ASCII, COUNT_ROWS>(result, at, before, row_end_bytes == 2, candidates, pos,
+				                                            value_ascii)) {
 					return true;
 				}
 				value_ascii = block_ascii;
@@ -747,12 +1090,14 @@ protected:
 		skipper.SetBuffer(*cur_buffer_handle);
 		while (iterator.pos.buffer_pos < to_pos) {
 			if (T::BLOCK_SCAN && block_scan && BlockScanPossible(result)) {
+				// a scan that reads no column counts rows and has no value to validate
 				const bool full =
-				    T::TracksAscii(result)
-				        ? (T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, true, true>(result, to_pos)
-				                                : ProcessBlocksOfDialect<T, true, false>(result, to_pos))
-				        : (T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, false, true>(result, to_pos)
-				                                : ProcessBlocksOfDialect<T, false, false>(result, to_pos));
+				    T::CountsRowsOnly(result) ? ProcessBlocksOfDialect<T, false, true, true>(result, to_pos)
+				    : T::TracksAscii(result)
+				        ? (T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, true, true, false>(result, to_pos)
+				                                : ProcessBlocksOfDialect<T, true, false, false>(result, to_pos))
+				        : (T::SkipsRuns(result) ? ProcessBlocksOfDialect<T, false, true, false>(result, to_pos)
+				                                : ProcessBlocksOfDialect<T, false, false, false>(result, to_pos));
 				if (full) {
 					bytes_read = iterator.pos.buffer_pos - start_pos;
 					return;

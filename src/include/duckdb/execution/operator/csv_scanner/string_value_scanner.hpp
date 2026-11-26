@@ -145,6 +145,10 @@ public:
 	bool HasError() const {
 		return !current_errors.empty();
 	}
+	//! Whether the current line has an error, stored or not
+	bool IsErrorInLine() const {
+		return is_error_in_line;
+	}
 
 	idx_t Size() const {
 		return current_errors.size();
@@ -240,6 +244,10 @@ public:
 	//! Information regarding projected columns
 	unsafe_unique_array<bool> projected_columns;
 	bool projecting_columns = false;
+	//! A scan that reads no column validates the UTF-8 of its first column as the scan reading it did
+	bool validate_first_column = false;
+	//! The scan reads no column (count(*)); only the first column is validated
+	bool only_counts_rows = false;
 	//! Per column, how many values from it on the block scan skips with one call: 0 for a projected column, 1 for a
 	//! column of a run of fewer than MIN_SKIPPED_RUN unprojected columns, otherwise the rest of its run
 	unsafe_unique_array<idx_t> unprojected_run;
@@ -290,11 +298,20 @@ public:
 		       !result.projected_columns[result.cur_col_id];
 	}
 	static inline void SkipValue(StringValueResult &result, const idx_t buffer_pos);
-	static inline bool AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos);
+	static DUCKDB_BLOCK_SCAN_INLINE bool AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos);
 	//! Whether the block scan skips the runs of unprojected columns of this scan with one call
 	static inline bool SkipsRuns(const StringValueResult &result) {
 		return result.skips_runs;
 	}
+	static constexpr bool CAN_COUNT_ROWS = true;
+	//! Whether the scan reads no column, so the block scan may count the rows of plain blocks from their masks
+	static inline bool CountsRowsOnly(const StringValueResult &result) {
+		return result.only_counts_rows;
+	}
+	//! Adds `rows` complete rows counted from the masks; `row_end` is the position of the last row's end byte and
+	//! `after_row_end` the position after it. Returns true when the result is full
+	static inline bool AddCountedRows(StringValueResult &result, const idx_t rows, const idx_t row_end,
+	                                  const idx_t after_row_end);
 	//! How many values the block scan skips with one call from the one ending at buffer_pos on: 0 when that one has
 	//! to be read, 1 when only it is skipped
 	static inline idx_t SkippableRun(const StringValueResult &result, const idx_t buffer_pos) {
@@ -308,6 +325,15 @@ public:
 	}
 	//! The bookkeeping of `count` unprojected values, the last one ending at the delimiter at buffer_pos
 	static inline void SkipValues(StringValueResult &result, const idx_t count, const idx_t buffer_pos);
+	//! The first value of a row of a scan that reads no column is validated before the block scan skips it; the
+	//! value ends at buffer_pos, at a delimiter or at the row end
+	static inline void ValidateSkippedFirstValue(StringValueResult &result, const idx_t buffer_pos,
+	                                             const bool row_end) {
+		D_ASSERT(result.validate_first_column);
+		if (result.cur_col_id == 0 && result.last_position.buffer_pos <= buffer_pos) {
+			result.ValidateSkippedFirstColumn(buffer_pos, row_end);
+		}
+	}
 	static inline bool TracksAscii(const StringValueResult &result) {
 		return result.validates_utf8;
 	}
@@ -323,6 +349,11 @@ public:
 	inline bool AddRowInternal();
 	//! The bookkeeping of a value that is not projected
 	inline void SkipValueInternal();
+	//! The UTF-8 check of a skipped first column value, when the scan reads no column; an escaped value is checked
+	//! with its escapes removed. Out of line, so that the hooks of the block scan that call it stay small
+	void ValidateSkippedFirstColumn(const char *value_ptr, idx_t size, bool escaped);
+	//! The same for the value that ends at the delimiter or row end at buffer_pos
+	void ValidateSkippedFirstColumn(idx_t buffer_pos, bool row_end);
 	//! Moves last_position past the newline that ends the row at buffer_pos
 	inline void SetLastPositionAfterNewline(idx_t buffer_pos);
 	//! Keeps the position of the current row for the error messages of Flush

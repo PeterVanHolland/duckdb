@@ -1,0 +1,45 @@
+# name: test/sql/copy/csv/test_count_rows_only_utf8_line_size.test
+# description: count(*) over a CSV file with non ASCII bytes applies max_line_size to the bytes of a row
+# group: [csv]
+
+# with two row chunks the reader measures the line of some rows differently and three more rows pass the limit,
+# with and without this change, so the counts need the default chunk size
+require vector_size 2048
+
+# the fixtures of test_count_rows_only_utf8.test: rows of 4 to 300 bytes with multi byte characters
+
+# LF, max_line_size 60, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, max_line_size=60)
+----
+Invalid Input Error: CSV Error on Line: 1
+
+# LF, max_line_size 60 and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, max_line_size=60, ignore_errors=true)
+----
+768
+
+# CRLF, max_line_size 60, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, max_line_size=60)
+----
+Invalid Input Error: CSV Error on Line: 1
+
+# CRLF, max_line_size 60 and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, max_line_size=60, ignore_errors=true)
+----
+745
+
+# CR, max_line_size 60, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, max_line_size=60)
+----
+Invalid Input Error: CSV Error on Line: 1
+
+# CR, max_line_size 60 and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, max_line_size=60, ignore_errors=true)
+----
+768

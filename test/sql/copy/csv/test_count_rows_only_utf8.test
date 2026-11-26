@@ -1,0 +1,808 @@
+# name: test/sql/copy/csv/test_count_rows_only_utf8.test
+# description: count(*) over a CSV file with non ASCII bytes validates the first column only
+# group: [csv]
+
+# The fixtures have 2,200 rows of three columns. The second and third column hold non ASCII text in nearly every
+# 64 byte block, an invalid byte (every 97th row) and a truncated sequence at the row end (every 101st), which a
+# count does not validate. The first column is a number, a valid non ASCII value (every 53rd row), empty (every
+# 211th) or longer than a block (every 167th); the invalid files add an invalid first column at rows 300, 1100,
+# 2049, 2050 and 2200. Expected results are those of the build that reads the first column to count.
+
+# LF, strict
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+2200
+
+# LF, parallel=false
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, parallel=false)
+----
+2200
+
+# LF, buffer_size 200
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=200)
+----
+2200
+
+# LF, buffer_size 400
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=400)
+----
+2200
+
+# LF, buffer_size 1000
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=1000)
+----
+2200
+
+# LF, a row of ones instead of count(*)
+query I
+SELECT count(*) FROM (SELECT 1 FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}))
+----
+2200
+
+# LF, the first column read, for comparison
+query I
+SELECT count(a) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+2190
+
+# CRLF, strict
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+2200
+
+# CRLF, parallel=false
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, parallel=false)
+----
+2200
+
+# CRLF, buffer_size 200
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=200)
+----
+2200
+
+# CRLF, buffer_size 400
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=400)
+----
+2200
+
+# CRLF, buffer_size 1000
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=1000)
+----
+2200
+
+# CRLF, a row of ones instead of count(*)
+query I
+SELECT count(*) FROM (SELECT 1 FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}))
+----
+2200
+
+# CRLF, the first column read, for comparison
+query I
+SELECT count(a) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+2190
+
+# CR, strict
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+2200
+
+# CR, parallel=false
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, parallel=false)
+----
+2200
+
+# CR, buffer_size 200
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=200)
+----
+2200
+
+# CR, buffer_size 400
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=400)
+----
+2200
+
+# CR, buffer_size 1000
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=1000)
+----
+2200
+
+# CR, a row of ones instead of count(*)
+query I
+SELECT count(*) FROM (SELECT 1 FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}))
+----
+2200
+
+# CR, the first column read, for comparison
+query I
+SELECT count(a) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_cr.csv', delim=',', quote='"', escape='"', header=false, new_line='\r', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+2190
+
+# two files
+query I
+SELECT count(*) FROM read_csv(['{DATA_DIR}/csv/block_scan_count_rows_utf8.csv', '{DATA_DIR}/csv/block_scan_count_rows_utf8.csv'], delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+4400
+
+# invalid first columns, LF, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 300
+
+# invalid first columns, LF, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+2195
+
+# invalid first columns, LF, null_padding and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true, null_padding=true)
+----
+2195
+
+# invalid first columns, LF, parallel=false, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, parallel=false)
+----
+Invalid Input Error: CSV Error on Line: 300
+
+# invalid first columns, LF, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, parallel=false, ignore_errors=true)
+----
+2195
+
+# invalid first columns, LF, buffer_size 200 and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=200, ignore_errors=true)
+----
+2195
+
+# invalid first columns, LF, buffer_size 400 and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=400, ignore_errors=true)
+----
+2195
+
+# invalid first columns, LF, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_lf AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_lf', rejects_scan='scan_utf8_lf')
+
+query I
+SELECT c FROM r_utf8_lf
+----
+2195
+
+query IIIII
+SELECT line, line_byte_position, byte_position, column_idx, error_type FROM rej_utf8_lf ORDER BY ALL
+----
+300	21127	21127	1	INVALID ENCODING
+1100	76871	76871	1	INVALID ENCODING
+2049	145402	145402	1	INVALID ENCODING
+2050	145472	145472	1	INVALID ENCODING
+2200	155919	155919	1	INVALID ENCODING
+
+# invalid first columns, CRLF, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 300
+
+# invalid first columns, CRLF, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+2195
+
+# invalid first columns, CRLF, null_padding and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true, null_padding=true)
+----
+2195
+
+# invalid first columns, CRLF, parallel=false, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, parallel=false)
+----
+Invalid Input Error: CSV Error on Line: 300
+
+# invalid first columns, CRLF, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, parallel=false, ignore_errors=true)
+----
+2195
+
+# invalid first columns, CRLF, buffer_size 200 and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=200, ignore_errors=true)
+----
+2195
+
+# invalid first columns, CRLF, buffer_size 400 and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, buffer_size=400, ignore_errors=true)
+----
+2195
+
+# invalid first columns, CRLF, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_crlf AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_invalid_crlf.csv', delim=',', quote='"', escape='"', header=false, new_line='\r\n', auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_crlf', rejects_scan='scan_utf8_crlf')
+
+query I
+SELECT c FROM r_utf8_crlf
+----
+2195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_crlf ORDER BY ALL
+----
+300	1	INVALID ENCODING
+1100	1	INVALID ENCODING
+2049	1	INVALID ENCODING
+2050	1	INVALID ENCODING
+2200	1	INVALID ENCODING
+
+# The files block_scan_count_rows_utf8_w1, w3 and w8 have 200 rows of one, three and eight columns, where the block
+# scan skips the first value of a row at the row end, by itself and with the run call: an invalid first value at rows
+# 9 and 150, a quoted one at row 17, an invalid byte in the last column at row 21, a valid non ASCII first value at
+# row 25, and in the files of three and eight columns an invalid first value in front of a quoted value at row 33
+# and in front of a false candidate of the block mask at row 41 ('-' behind ',', '}' behind '|'). Each is counted
+# with a comma or a two byte delimiter, without and with a comment byte, which selects the
+# four instantiations of the block scan; w8_comment also holds two comment lines. A scan that reads the second
+# column validates neither the first nor the last one and returns all 200 rows.
+
+# 1 column, a comma, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 1 column, a comma, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true)
+----
+197
+
+# 1 column, a comma, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+197
+
+# 1 column, a comma, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w1_comma AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w1_comma', rejects_scan='scan_utf8_w1_comma')
+
+query I
+SELECT c FROM r_utf8_w1_comma
+----
+197
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w1_comma ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 1 column, a two byte delimiter, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 1 column, a two byte delimiter, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true)
+----
+197
+
+# 1 column, a two byte delimiter, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+197
+
+# 1 column, a two byte delimiter, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w1_pipe2 AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w1_pipe2', rejects_scan='scan_utf8_w1_pipe2')
+
+query I
+SELECT c FROM r_utf8_w1_pipe2
+----
+197
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w1_pipe2 ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 1 column, a comma and a comment byte, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 1 column, a comma and a comment byte, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true)
+----
+197
+
+# 1 column, a comma and a comment byte, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+197
+
+# 1 column, a comma and a comment byte, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w1_comma_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w1_comma_comment', rejects_scan='scan_utf8_w1_comma_comment')
+
+query I
+SELECT c FROM r_utf8_w1_comma_comment
+----
+197
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w1_comma_comment ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 1 column, a two byte delimiter and a comment byte, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 1 column, a two byte delimiter and a comment byte, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true)
+----
+197
+
+# 1 column, a two byte delimiter and a comment byte, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+197
+
+# 1 column, a two byte delimiter and a comment byte, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w1_pipe2_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w1.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w1_pipe2_comment', rejects_scan='scan_utf8_w1_pipe2_comment')
+
+query I
+SELECT c FROM r_utf8_w1_pipe2_comment
+----
+197
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w1_pipe2_comment ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 3 columns, a comma, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 3 columns, a comma, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 3 columns, a comma, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195
+
+# 3 columns, a comma, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+200
+
+# 3 columns, a comma, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+200
+
+# 3 columns, a comma, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w3_comma AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w3_comma', rejects_scan='scan_utf8_w3_comma')
+
+query I
+SELECT c FROM r_utf8_w3_comma
+----
+195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w3_comma ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+33	1	INVALID ENCODING
+41	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 3 columns, a two byte delimiter, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 3 columns, a two byte delimiter, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 3 columns, a two byte delimiter, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195
+
+# 3 columns, a two byte delimiter, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+200
+
+# 3 columns, a two byte delimiter, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+200
+
+# 3 columns, a two byte delimiter, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w3_pipe2 AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w3_pipe2', rejects_scan='scan_utf8_w3_pipe2')
+
+query I
+SELECT c FROM r_utf8_w3_pipe2
+----
+195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w3_pipe2 ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+33	1	INVALID ENCODING
+41	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 3 columns, a comma and a comment byte, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 3 columns, a comma and a comment byte, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 3 columns, a comma and a comment byte, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195
+
+# 3 columns, a comma and a comment byte, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+200
+
+# 3 columns, a comma and a comment byte, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+200
+
+# 3 columns, a comma and a comment byte, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w3_comma_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w3_comma_comment', rejects_scan='scan_utf8_w3_comma_comment')
+
+query I
+SELECT c FROM r_utf8_w3_comma_comment
+----
+195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w3_comma_comment ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+33	1	INVALID ENCODING
+41	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 3 columns, a two byte delimiter and a comment byte, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 3 columns, a two byte delimiter and a comment byte, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 3 columns, a two byte delimiter and a comment byte, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195
+
+# 3 columns, a two byte delimiter and a comment byte, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'})
+----
+200
+
+# 3 columns, a two byte delimiter and a comment byte, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+200
+
+# 3 columns, a two byte delimiter and a comment byte, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w3_pipe2_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w3_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w3_pipe2_comment', rejects_scan='scan_utf8_w3_pipe2_comment')
+
+query I
+SELECT c FROM r_utf8_w3_pipe2_comment
+----
+195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w3_pipe2_comment ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+33	1	INVALID ENCODING
+41	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 8 columns, a comma, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 8 columns, a comma, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 8 columns, a comma, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195
+
+# 8 columns, a comma, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+200
+
+# 8 columns, a comma, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+200
+
+# 8 columns, a comma, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w8_comma AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w8_comma', rejects_scan='scan_utf8_w8_comma')
+
+query I
+SELECT c FROM r_utf8_w8_comma
+----
+195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w8_comma ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+33	1	INVALID ENCODING
+41	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 8 columns, a two byte delimiter, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 8 columns, a two byte delimiter, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 8 columns, a two byte delimiter, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195
+
+# 8 columns, a two byte delimiter, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+200
+
+# 8 columns, a two byte delimiter, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+200
+
+# 8 columns, a two byte delimiter, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w8_pipe2 AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w8_pipe2', rejects_scan='scan_utf8_w8_pipe2')
+
+query I
+SELECT c FROM r_utf8_w8_pipe2
+----
+195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w8_pipe2 ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+33	1	INVALID ENCODING
+41	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 8 columns, a comma and a comment byte, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 8 columns, a comma and a comment byte, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 8 columns, a comma and a comment byte, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195
+
+# 8 columns, a comma and a comment byte, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+200
+
+# 8 columns, a comma and a comment byte, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+200
+
+# 8 columns, a comma and a comment byte, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w8_comma_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w8_comma_comment', rejects_scan='scan_utf8_w8_comma_comment')
+
+query I
+SELECT c FROM r_utf8_w8_comma_comment
+----
+195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w8_comma_comment ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+33	1	INVALID ENCODING
+41	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 8 columns, a two byte delimiter and a comment byte, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 9
+
+# 8 columns, a two byte delimiter and a comment byte, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 8 columns, a two byte delimiter and a comment byte, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195
+
+# 8 columns, a two byte delimiter and a comment byte, the second column is read, strict
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+200
+
+# 8 columns, a two byte delimiter and a comment byte, the second column is read, ignore_errors
+query I
+SELECT count(b) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+200
+
+# 8 columns, a two byte delimiter and a comment byte, rejects
+statement ok
+CREATE OR REPLACE TEMP TABLE r_utf8_w8_pipe2_comment AS SELECT count(*) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_pipe2.csv', delim='||', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, store_rejects=true, rejects_table='rej_utf8_w8_pipe2_comment', rejects_scan='scan_utf8_w8_pipe2_comment')
+
+query I
+SELECT c FROM r_utf8_w8_pipe2_comment
+----
+195
+
+query III
+SELECT line, column_idx, error_type FROM rej_utf8_w8_pipe2_comment ORDER BY ALL
+----
+9	1	INVALID ENCODING
+17	1	INVALID ENCODING
+33	1	INVALID ENCODING
+41	1	INVALID ENCODING
+150	1	INVALID ENCODING
+
+# 8 columns with comment lines, strict
+statement error
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_comment.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'})
+----
+Invalid Input Error: CSV Error on Line: 10
+
+# 8 columns with comment lines, ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_comment.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true)
+----
+195
+
+# 8 columns with comment lines, parallel=false and ignore_errors
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_utf8_w8_comment.csv', delim=',', comment='#', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'VARCHAR','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR'}, ignore_errors=true, parallel=false)
+----
+195

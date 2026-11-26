@@ -1,0 +1,49 @@
+# name: test/sql/copy/csv/test_comment_over_buffer_edge.test
+# description: A comment that starts inside an unprojected value spanning a buffer edge keeps the row at its width
+# group: [csv]
+
+# the fixture depends on exact byte offsets
+require notwindows
+
+# block_scan_count_rows_comment.csv holds 2,100 rows with comment lines at rows 65, 2049 and 2100 and a comment starting inside the last
+# value of row 901 (`900,abc,def # not a comment`); with a 100 byte buffer that value spans a buffer edge. The value before the comment
+# is the third column, whether the column is read or not.
+
+query IIII
+SELECT a, b, c, length(c) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_comment.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, comment='#', columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}) WHERE a = 900
+----
+900	abc	def 	4
+
+query IIII
+SELECT a, b, c, length(c) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_comment.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, comment='#', columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, buffer_size=100) WHERE a = 900
+----
+900	abc	def 	4
+
+query I
+SELECT count(c) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_comment.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, comment='#', columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, buffer_size=100)
+----
+2097
+
+# the third column unprojected: the comment used to add a fourth column to the row
+query I
+SELECT count(a) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_comment.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, comment='#', columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, buffer_size=100)
+----
+2097
+
+query I
+SELECT count(*) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_comment.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, comment='#', columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, buffer_size=100)
+----
+2097
+
+statement ok
+CREATE OR REPLACE TEMP TABLE r_comment_edge AS SELECT count(a) AS c FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows_comment.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, comment='#', columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, store_rejects=true, rejects_table='rej_comment_edge', rejects_scan='scan_comment_edge', buffer_size=100)
+
+query I
+SELECT c FROM r_comment_edge
+----
+2097
+
+query I
+SELECT count(*) FROM rej_comment_edge
+----
+0
