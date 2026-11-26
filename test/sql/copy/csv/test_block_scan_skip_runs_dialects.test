@@ -177,6 +177,25 @@ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyy
 NULL
 
+# file pipe2, ignore_errors, selecting f, g
+query II
+SELECT f, g FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+f1	g1
+f10	g10
+f11	g11
+f12	g12
+f13	g13
+f14	g14
+f15	g15
+f16	g16
+f2	g2
+f3	g3
+f4	g4
+f5	g5
+f6	g6
+f9	g9
+
 # file pipe2, ignore_errors, selecting d, h
 query II
 SELECT d, h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2.csv', delim='||', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
@@ -498,6 +517,25 @@ x5
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyy
 NULL
+
+# file cent, ignore_errors, selecting f, g
+query II
+SELECT f, g FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cent.csv', delim='¦', new_line='\n', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+f1	g1
+f10	g10
+f11	g11
+f12	g12
+f13	g13
+f14	g14
+f15	g15
+f16	g16
+f2	g2
+f3	g3
+f4	g4
+f5	g5
+f6	g6
+f9	g9
 
 # file cent, ignore_errors, selecting d, h
 query II
@@ -821,6 +859,25 @@ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyyy
 NULL
 
+# file cr_full, ignore_errors, selecting f, g
+query II
+SELECT f, g FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',', new_line='\r', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+f1	g1
+f10	g10
+f11	g11
+f12	g12
+f13	g13
+f14	g14
+f15	g15
+f16	g16
+f2	g2
+f3	g3
+f4	g4
+f5	g5
+f6	g6
+f9	g9
+
 # file cr_full, ignore_errors, selecting d, h
 query II
 SELECT d, h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_cr_full.csv', delim=',', new_line='\r', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
@@ -1126,6 +1183,23 @@ x5
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyyy
 NULL
+
+# file comment, ignore_errors, selecting f, g
+query II
+SELECT f, g FROM read_csv('{DATA_DIR}/csv/block_scan_runs_comment.csv', delim=',', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+f1	g1
+f11	g11
+f12	g12
+f13	g13
+f14	g14
+f15	g15
+f16	g16
+f2	g2
+f3	g3
+f4	g4
+f5	g5
+f6	g6
 
 # file comment, ignore_errors, selecting d, h
 query II
@@ -1463,6 +1537,23 @@ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyy
 NULL
 
+# file crlf_comment, ignore_errors, selecting f, g
+query II
+SELECT f, g FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', delim=',', new_line='\r\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+f1	g1
+f11	g11
+f12	g12
+f13	g13
+f14	g14
+f15	g15
+f16	g16
+f2	g2
+f3	g3
+f4	g4
+f5	g5
+f6	g6
+
 # file crlf_comment, ignore_errors, selecting d, h
 query II
 SELECT d, h FROM read_csv('{DATA_DIR}/csv/block_scan_runs_crlf_comment.csv', delim=',', new_line='\r\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
@@ -1798,6 +1889,23 @@ x5
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyy
 NULL
+
+# file pipe2_comment, ignore_errors, selecting f, g
+query II
+SELECT f, g FROM read_csv('{DATA_DIR}/csv/block_scan_runs_pipe2_comment.csv', delim='||', new_line='\n', comment='#', quote='"', escape='"', header=false, auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true) ORDER BY ALL
+----
+f1	g1
+f11	g11
+f12	g12
+f13	g13
+f14	g14
+f15	g15
+f16	g16
+f2	g2
+f3	g3
+f4	g4
+f5	g5
+f6	g6
 
 # file pipe2_comment, ignore_errors, selecting d, h
 query II
