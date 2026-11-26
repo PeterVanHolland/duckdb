@@ -119,10 +119,11 @@ StringValueResult::StringValueResult(CSVStates &states, CSVStateMachine &state_m
 				unprojected_run[col_idx - 1] = run;
 			}
 			// the values of a short run are skipped one by one, the call for a run costs more than it saves there
+			idx_t columns_in_long_runs = 0;
 			for (idx_t col_idx = 0; col_idx < number_of_columns;) {
 				const idx_t length = unprojected_run[col_idx];
 				if (length >= MIN_SKIPPED_RUN) {
-					skips_runs = true;
+					columns_in_long_runs += length;
 				} else {
 					for (idx_t i = col_idx; i < col_idx + length; i++) {
 						unprojected_run[i] = 1;
@@ -130,6 +131,8 @@ StringValueResult::StringValueResult(CSVStates &states, CSVStateMachine &state_m
 				}
 				col_idx += MaxValue<idx_t>(length, 1);
 			}
+			// asking for the run at every delimiter pays off only when the long runs hold most of the columns
+			skips_runs = 2 * columns_in_long_runs > number_of_columns;
 		}
 		if (!projecting_columns) {
 			for (idx_t j = logical_types.size(); j < number_of_columns; j++) {

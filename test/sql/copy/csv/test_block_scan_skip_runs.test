@@ -6,7 +6,9 @@
 require notwindows
 
 # block_scan_runs.csv has 12 columns, so that projections leave runs of unprojected columns that are skipped with one
-# call (6 columns and more) and runs that are not. Its rows hold a tab, a quoted value with the delimiter, a quote in an
+# call (runs of 6 and more that hold more than half of the columns) and runs that are not: selecting a, l, c, b or
+# c and e skips runs, selecting g or f (a run of 6, half of the columns) and f and g or d and h (shorter runs) does
+# not. Its rows hold a tab, a quoted value with the delimiter, a quote in an
 # unquoted value, a space before a quote, empty values, too few columns, three values too many, an escaped quote, a run
 # across a block edge, delimiters on the last and on the first byte of a block, and no newline after the last row.
 # The CRLF file holds the same rows, the CR file a lone carriage return inside a run, empty_first.csv an empty first
