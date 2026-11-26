@@ -555,3 +555,15 @@ query I
 SELECT count(*) FROM read_csv('{TEST_DIR}/count_empty_before_row.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, max_line_size=46, ignore_errors=true)
 ----
 396
+
+# a scan that reads only an integer column is no count: its rows are not counted from the masks, with three columns
+# and with twelve, where the other eleven are skipped as one run
+query II
+SELECT sum(a), count(a) FROM read_csv('{DATA_DIR}/csv/block_scan_count_rows.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR'}, ignore_errors=true)
+----
+12492256	4997
+
+query II
+SELECT sum(a), count(a) FROM read_csv('{DATA_DIR}/csv/block_scan_runs.csv', delim=',', quote='"', escape='"', header=false, new_line='\n', auto_detect=false, columns={'a':'INTEGER','b':'VARCHAR','c':'VARCHAR','d':'VARCHAR','e':'VARCHAR','f':'VARCHAR','g':'VARCHAR','h':'VARCHAR','i':'VARCHAR','j':'VARCHAR','k':'VARCHAR','l':'VARCHAR'}, ignore_errors=true)
+----
+121	14
