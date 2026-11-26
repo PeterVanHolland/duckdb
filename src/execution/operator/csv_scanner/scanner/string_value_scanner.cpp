@@ -768,19 +768,12 @@ void StringValueResult::SkipValue(StringValueResult &result, const idx_t buffer_
 	if (result.last_position.buffer_pos > buffer_pos) {
 		return;
 	}
-	if (result.validate_first_column && result.cur_col_id == 0) {
-		result.ValidateSkippedFirstColumn(buffer_pos, false);
-	}
 	result.SkipValueInternal();
 	result.last_position.buffer_pos = buffer_pos + 1;
 }
 
-void StringValueResult::SkipValues(StringValueResult &result, const idx_t count, const idx_t first_buffer_pos,
-                                   const idx_t buffer_pos) {
+void StringValueResult::SkipValues(StringValueResult &result, const idx_t count, const idx_t buffer_pos) {
 	D_ASSERT(count > 0 && result.last_position.buffer_pos <= buffer_pos);
-	if (result.validate_first_column && result.cur_col_id == 0) {
-		result.ValidateSkippedFirstColumn(first_buffer_pos, false);
-	}
 	// the first value may close a quoted value, the ones after it are plain
 	result.SkipValueInternal();
 	result.cur_col_id += count - 1;
@@ -1106,9 +1099,6 @@ bool StringValueResult::AddCountedRows(StringValueResult &result, const idx_t ro
 
 bool StringValueResult::AddRowWithoutValue(StringValueResult &result, const idx_t buffer_pos) {
 	if (result.last_position.buffer_pos <= buffer_pos) {
-		if (result.validate_first_column && result.cur_col_id == 0) {
-			result.ValidateSkippedFirstColumn(buffer_pos, true);
-		}
 		result.SkipValueInternal();
 		result.SetLastPositionAfterNewline(buffer_pos);
 	}

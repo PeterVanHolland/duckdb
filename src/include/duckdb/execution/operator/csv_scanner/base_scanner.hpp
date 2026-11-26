@@ -127,7 +127,11 @@ public:
 		return 0;
 	}
 	template <class T>
-	static inline void SkipValues(T &result, const idx_t count, const idx_t first_buffer_pos, const idx_t buffer_pos) {
+	static inline void SkipValues(T &result, const idx_t count, const idx_t buffer_pos) {
+	}
+	//! A scan that reads no column validates the first value of a row before the block scan skips it
+	template <class T>
+	static inline void ValidateSkippedFirstValue(T &result, const idx_t buffer_pos, const bool row_end) {
 	}
 	//! Whether a value of this result may skip its UTF-8 check, so the block scan tracks ASCII blocks
 	template <class T>
@@ -389,8 +393,9 @@ protected:
 	}
 
 	//! The delimiter at `at`, `before` is the state before it, `ascii` whether the value lies in ASCII blocks. A scan
-	//! that skips runs knows from SkippableRun whether the value is skipped and passes it as `skip`
-	template <class T, bool TRACK_ASCII, bool SKIP_RUNS = false>
+	//! that skips runs knows from SkippableRun whether the value is skipped and passes it as `skip`; a scan that
+	//! reads no column (COUNT_ROWS) validates the first value of a row before skipping it
+	template <class T, bool TRACK_ASCII, bool SKIP_RUNS = false, bool COUNT_ROWS = false>
 	DUCKDB_BLOCK_SCAN_INLINE void BlockDelimiter(T &result, const idx_t at, const CSVState before, const bool ascii,
 	                                             const bool skip = false) {
 		D_ASSERT(!SKIP_RUNS || skip == T::CanSkipValue(result));
@@ -398,6 +403,9 @@ protected:
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = at;
 		if (SKIP_RUNS ? skip : T::CanSkipValue(result)) {
+			if (COUNT_ROWS) {
+				T::ValidateSkippedFirstValue(result, at, false);
+			}
 			T::SkipValue(result, at);
 		} else {
 			if (TRACK_ASCII) {
@@ -413,7 +421,7 @@ protected:
 	//! The delimiter at `at` (the last byte of a multi byte delimiter) and the delimiters of the unprojected columns
 	//! that follow it in the block, `run` at most, with one bookkeeping call. `last` is the first byte after the
 	//! previous structural byte. Returns the first byte after the last consumed delimiter
-	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT>
+	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool COUNT_ROWS = false>
 	idx_t BlockDelimiterRun(T &result, const idx_t at, const CSVState before, const idx_t run, const idx_t last,
 	                        uint64_t &candidates, const idx_t pos, const idx_t limit) {
 		idx_t last_delimiter = at;
@@ -453,13 +461,16 @@ protected:
 		states.states[0] = before_last;
 		states.states[1] = CSVState::DELIMITER;
 		iterator.pos.buffer_pos = last_delimiter;
-		T::SkipValues(result, consumed, at, last_delimiter);
+		if (COUNT_ROWS) {
+			T::ValidateSkippedFirstValue(result, at, false);
+		}
+		T::SkipValues(result, consumed, last_delimiter);
 		return last_delimiter + 1;
 	}
 
 	//! The row end at `at`, `before` is the state before it, `ascii` whether the last value lies in ASCII blocks.
 	//! Returns true when the result is full
-	template <class T, bool TRACK_ASCII>
+	template <class T, bool TRACK_ASCII, bool COUNT_ROWS = false>
 	bool BlockRowEnd(T &result, const idx_t at, const CSVState before, const bool crlf, uint64_t &candidates,
 	                 const idx_t pos, const bool ascii) {
 		states.states[0] = before;
@@ -467,6 +478,9 @@ protected:
 		iterator.pos.buffer_pos = at;
 		bool full;
 		if (T::CanSkipValue(result)) {
+			if (COUNT_ROWS) {
+				T::ValidateSkippedFirstValue(result, at, true);
+			}
 			full = T::AddRowWithoutValue(result, at);
 		} else {
 			if (TRACK_ASCII) {
@@ -794,25 +808,26 @@ protected:
 		return pos;
 	}
 
-	//! Chooses the ProcessBlocks instantiation of the dialect; TRACK_ASCII, SKIP_RUNS and COUNT_ROWS are the scan's,
-	//! and the row counting from masks exists for the plain dialect only
+	//! Chooses the ProcessBlocks instantiation of the dialect; TRACK_ASCII, SKIP_RUNS and COUNT_ROWS are the scan's
 	template <class T, bool TRACK_ASCII, bool SKIP_RUNS, bool COUNT_ROWS>
 	bool ProcessBlocksOfDialect(T &result, const idx_t to_pos) {
+		constexpr bool count_rows = COUNT_ROWS && T::CAN_COUNT_ROWS;
 		if (block_comment != '\0') {
 			return block_multi_byte_delimiter
-			           ? ProcessBlocks<T, true, true, TRACK_ASCII, SKIP_RUNS, false>(result, to_pos)
-			           : ProcessBlocks<T, false, true, TRACK_ASCII, SKIP_RUNS, false>(result, to_pos);
+			           ? ProcessBlocks<T, true, true, TRACK_ASCII, SKIP_RUNS, count_rows>(result, to_pos)
+			           : ProcessBlocks<T, false, true, TRACK_ASCII, SKIP_RUNS, count_rows>(result, to_pos);
 		}
-		return block_multi_byte_delimiter ? ProcessBlocks<T, true, false, TRACK_ASCII, SKIP_RUNS, false>(result, to_pos)
-		                                  : ProcessBlocks < T,
-		       false, false, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS && T::CAN_COUNT_ROWS > (result, to_pos);
+		return block_multi_byte_delimiter
+		           ? ProcessBlocks<T, true, false, TRACK_ASCII, SKIP_RUNS, count_rows>(result, to_pos)
+		           : ProcessBlocks<T, false, false, TRACK_ASCII, SKIP_RUNS, count_rows>(result, to_pos);
 	}
 
 	//! Scans unquoted fields and quoted values in their canonical form, and preserves the states when handing back
 	//! to Process. Returns true when the result is full. Repeated SetQuoted calls may be skipped because the setter
 	//! is idempotent. MULTI_BYTE_DELIMITER and COMMENT are the dialect's; TRACK_ASCII (a projected string column is
-	//! validated), SKIP_RUNS (the scan has unprojected columns) and COUNT_ROWS (the scan reads no column, its plain
-	//! blocks are counted from masks) are the scan's, so dialects and scans without them pay nothing for them
+	//! validated), SKIP_RUNS (the scan has unprojected columns) and COUNT_ROWS (the scan reads no column: the first
+	//! value of a row is validated where it is skipped, and without a comment byte or a multi byte delimiter the
+	//! plain blocks are counted from masks) are the scan's, so dialects and scans without them pay nothing for them
 	template <class T, bool MULTI_BYTE_DELIMITER, bool COMMENT, bool TRACK_ASCII, bool SKIP_RUNS, bool COUNT_ROWS>
 	DUCKDB_BLOCK_SCAN_ALIGNED bool ProcessBlocks(T &result, const idx_t to_pos) {
 		const auto buffer = buffer_handle_ptr;
@@ -831,7 +846,7 @@ protected:
 		uint64_t candidates;
 		idx_t block_end;
 		while (pos < to_pos) {
-			if constexpr (COUNT_ROWS) {
+			if constexpr (COUNT_ROWS && !MULTI_BYTE_DELIMITER && !COMMENT) {
 				if (!quoted && count_wait > 0) {
 					count_wait--;
 				} else if (!quoted) {
@@ -940,15 +955,15 @@ protected:
 						if (MULTI_BYTE_DELIMITER) {
 							ClearCandidates(candidates, pos, at + 2, at + 1 + delimiter_bytes);
 						}
-						BlockDelimiter<T, TRACK_ASCII>(
+						BlockDelimiter<T, TRACK_ASCII, false, COUNT_ROWS>(
 						    result, at + delimiter_bytes,
 						    MULTI_BYTE_DELIMITER ? DelimiterPenultimateState() : CSVState::UNQUOTED, value_ascii);
 						value_ascii = block_ascii;
 						last = at + 1 + delimiter_bytes;
 						continue;
 					}
-					if (BlockRowEnd<T, TRACK_ASCII>(result, at + 1, CSVState::UNQUOTED, row_end_bytes == 2, candidates,
-					                                pos, value_ascii)) {
+					if (BlockRowEnd<T, TRACK_ASCII, COUNT_ROWS>(result, at + 1, CSVState::UNQUOTED, row_end_bytes == 2,
+					                                            candidates, pos, value_ascii)) {
 						return true;
 					}
 					value_ascii = block_ascii;
@@ -968,11 +983,11 @@ protected:
 						ClearCandidates(candidates, pos, at + 1, at + delimiter_bytes);
 						const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at + delimiter_bytes - 1) : 0;
 						if (run > 1) {
-							last = BlockDelimiterRun<T, true, COMMENT>(result, at + delimiter_bytes - 1,
+							last = BlockDelimiterRun<T, true, COMMENT, COUNT_ROWS>(result, at + delimiter_bytes - 1,
 							                                           DelimiterPenultimateState(), run, last,
 							                                           candidates, pos, limit);
 						} else {
-							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(
+							BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(
 							    result, at + delimiter_bytes - 1, DelimiterPenultimateState(), value_ascii, run == 1);
 							last = at + delimiter_bytes;
 						}
@@ -984,9 +999,9 @@ protected:
 					const idx_t run = SKIP_RUNS ? T::SkippableRun(result, at) : 0;
 					if (run > 1) {
 						last =
-						    BlockDelimiterRun<T, false, COMMENT>(result, at, before, run, last, candidates, pos, limit);
+						    BlockDelimiterRun<T, false, COMMENT, COUNT_ROWS>(result, at, before, run, last, candidates, pos, limit);
 					} else {
-						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS>(result, at, before, value_ascii, run == 1);
+						BlockDelimiter<T, TRACK_ASCII, SKIP_RUNS, COUNT_ROWS>(result, at, before, value_ascii, run == 1);
 						last = at + 1;
 					}
 					value_ascii = block_ascii;
@@ -1034,7 +1049,8 @@ protected:
 				D_ASSERT(ReplayStates(last, at + 1).states[0] == before);
 				D_ASSERT(ReplayStates(last, at + 1).states[1] ==
 				         (row_end_bytes == 2 ? CSVState::CARRIAGE_RETURN : CSVState::RECORD_SEPARATOR));
-				if (BlockRowEnd<T, TRACK_ASCII>(result, at, before, row_end_bytes == 2, candidates, pos, value_ascii)) {
+				if (BlockRowEnd<T, TRACK_ASCII, COUNT_ROWS>(result, at, before, row_end_bytes == 2, candidates, pos,
+				                                            value_ascii)) {
 					return true;
 				}
 				value_ascii = block_ascii;

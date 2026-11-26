@@ -324,8 +324,15 @@ public:
 		return run > 1 && result.last_position.buffer_pos > buffer_pos ? 1 : run;
 	}
 	//! The bookkeeping of `count` unprojected values, the last one ending at the delimiter at buffer_pos
-	static inline void SkipValues(StringValueResult &result, const idx_t count, const idx_t first_buffer_pos,
-	                              const idx_t buffer_pos);
+	static inline void SkipValues(StringValueResult &result, const idx_t count, const idx_t buffer_pos);
+	//! The first value of a row of a scan that reads no column is validated before the block scan skips it; the
+	//! value ends at buffer_pos, at a delimiter or at the row end
+	static inline void ValidateSkippedFirstValue(StringValueResult &result, const idx_t buffer_pos, const bool row_end) {
+		D_ASSERT(result.validate_first_column);
+		if (result.cur_col_id == 0 && result.last_position.buffer_pos <= buffer_pos) {
+			result.ValidateSkippedFirstColumn(buffer_pos, row_end);
+		}
+	}
 	static inline bool TracksAscii(const StringValueResult &result) {
 		return result.validates_utf8;
 	}
