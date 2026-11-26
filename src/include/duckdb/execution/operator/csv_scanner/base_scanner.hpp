@@ -561,6 +561,13 @@ protected:
 	};
 	CheckedValue checked_value;
 
+	//! The blocks left to the block scan before the next attempt to count rows from masks, and the wait after the
+	//! next attempt that counts nothing, so that a file whose blocks never qualify does not pay for an attempt per
+	//! block
+	idx_t count_wait = 0;
+	idx_t next_count_wait = 0;
+	static constexpr idx_t MAX_COUNT_WAIT = 32;
+
 	//! The state pair after the last structural byte of the counted blocks and the position after that byte, from
 	//! the last two counted blocks with structural bytes; `last` is the hand-over position before the counting. When
 	//! the result is full, a CRLF row end hands over after its carriage return, as the byte path does
@@ -590,11 +597,32 @@ protected:
 		after_pos = latest.pos + at_bit + (delimiter ? 1 : (block_crlf && !full ? 2 : 1));
 	}
 
+	//! The exact delimiter and row end masks of a block for the row count. False when a carriage return or a line
+	//! feed of a CRLF file does not pair inside the block; the row ends of such a file are the carriage returns
+	bool RowCountBlockMasks(const_data_ptr_t window, const uint8_t row_end_byte, const uint8_t other_byte,
+	                        uint64_t &delimiters, uint64_t &row_ends) const {
+		uint64_t line_feeds;
+		if (!block_crlf) {
+			SwarBlock::RowCountMasks<false>(window, block_delimiter, row_end_byte, other_byte, delimiters, row_ends,
+			                                line_feeds);
+			return true;
+		}
+		SwarBlock::RowCountMasks<true>(window, block_delimiter, row_end_byte, other_byte, delimiters, row_ends,
+		                               line_feeds);
+		const uint64_t pairs = row_ends & (line_feeds >> 1);
+		if ((row_ends & ~pairs) != 0 || (line_feeds & ~(pairs << 1)) != 0) {
+			return false;
+		}
+		row_ends = pairs;
+		return true;
+	}
+
 	//! Counts the rows of the plain 64 byte blocks from `pos` on for a scan that reads no column: a block without a
-	//! quote, a stray row end byte or a non ASCII byte, whose rows all have the right number of fields, no empty
-	//! line and no line over the maximum size, is counted from its delimiter and row end masks without a visit to
-	//! its other bytes. Stops at the first block or row that needs the byte by byte path and leaves `states`, `last`
-	//! and the result positioned for it. Returns the position reached; `full` is set when the result is full
+	//! quote, a stray row end byte or a non ASCII byte in a first column, whose rows all have the right number of
+	//! fields, no empty line and no line over the maximum size, is counted from its delimiter and row end masks
+	//! without a visit to its other bytes. Stops at the first block or row that needs the byte by byte path and
+	//! leaves `states`, `last` and the result positioned for it. Returns the position reached, which is `pos` when
+	//! nothing was counted; `full` is set when the result is full
 	template <class T>
 	idx_t CountRowsInPlainBlocks(T &result, idx_t pos, const idx_t to_pos, idx_t &last, bool &full) {
 		const auto buffer = buffer_handle_ptr;
@@ -633,6 +661,9 @@ protected:
 		// the row end byte is the carriage return of a pair; a line feed is then the other byte, exact mask needed
 		const uint8_t row_end_byte = block_cr || block_crlf ? '\r' : '\n';
 		const uint8_t other_byte = block_cr || block_crlf ? '\n' : '\r';
+		// the byte besides the quote that a countable block may not hold: the other row end byte, which a CRLF file
+		// has in every pair and checks with the pairs
+		const uint8_t stray_byte = block_crlf ? block_quote : other_byte;
 		// the open row: the fields it has done, its start (the hand-over position, when no field is done yet) and
 		// the row end before it for the line size, when that lies in this buffer
 		idx_t fields_done = result.cur_col_id;
@@ -652,27 +683,26 @@ protected:
 			const auto window = const_data_ptr_cast(buffer + pos);
 			uint64_t delimiters;
 			uint64_t row_ends;
-			uint64_t line_feeds;
-			if (block_crlf) {
-				// a non ASCII byte or a quote: the byte path's block
-				if (SwarBlock::HasHighBitOrBytes(window, block_quote, block_quote)) {
+			if (!SwarBlock::HasHighBitOrBytes(window, block_quote, stray_byte)) {
+				// the common block: ASCII, no quote and no stray row end byte
+				if (!RowCountBlockMasks(window, row_end_byte, other_byte, delimiters, row_ends)) {
 					break;
 				}
-				SwarBlock::RowCountMasks<true>(window, block_delimiter, row_end_byte, other_byte, delimiters, row_ends,
-				                               line_feeds);
-				// every carriage return must pair with a line feed inside the block, and every line feed with one
-				const uint64_t pairs = row_ends & (line_feeds >> 1);
-				if ((row_ends & ~pairs) != 0 || (line_feeds & ~(pairs << 1)) != 0) {
-					break;
-				}
-				row_ends = pairs;
 			} else {
-				// a non ASCII byte, a quote or the other row end byte: the byte path's block
-				if (SwarBlock::HasHighBitOrBytes(window, block_quote, other_byte)) {
+				// a quote or a stray row end byte makes the block the byte path's
+				if (SwarBlock::HasBytes(window, block_quote, stray_byte) ||
+				    !RowCountBlockMasks(window, row_end_byte, other_byte, delimiters, row_ends)) {
 					break;
 				}
-				SwarBlock::RowCountMasks<false>(window, block_delimiter, row_end_byte, other_byte, delimiters, row_ends,
-				                                line_feeds);
+				// a non ASCII byte does so only in a first column, the one column this scan validates. Its bytes run
+				// from every row start (and from the block start, when the open row has no field yet) to the next
+				// structural byte, which the subtraction borrows from
+				const uint64_t structural = delimiters | row_ends;
+				const uint64_t row_starts = (row_ends << row_end_bytes) | (fields_done == 0 ? 1 : 0);
+				const uint64_t first_column = (structural - row_starts) & ~structural;
+				if ((SwarBlock::PackFlagBytes(window) & first_column) != 0) {
+					break;
+				}
 			}
 			// the rows ending in this block
 			uint64_t pending = row_ends;
@@ -802,9 +832,19 @@ protected:
 		idx_t block_end;
 		while (pos < to_pos) {
 			if constexpr (COUNT_ROWS) {
-				if (!quoted) {
+				if (!quoted && count_wait > 0) {
+					count_wait--;
+				} else if (!quoted) {
 					bool full = false;
-					pos = CountRowsInPlainBlocks(result, pos, to_pos, last, full);
+					const idx_t reached = CountRowsInPlainBlocks(result, pos, to_pos, last, full);
+					if (reached == pos) {
+						// attempts that count nothing in a row wait 0, 1, 2, 4 ... blocks before the next one
+						count_wait = next_count_wait;
+						next_count_wait = MinValue<idx_t>(MAX_COUNT_WAIT, MaxValue<idx_t>(next_count_wait * 2, 1));
+					} else {
+						next_count_wait = 0;
+					}
+					pos = reached;
 					if (full) {
 						return true;
 					}

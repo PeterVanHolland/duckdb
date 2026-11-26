@@ -127,7 +127,8 @@ struct SwarBlock {
 		return x ^ t ^ (t << 28);
 	}
 
-	//! The bit mask of the 0x80 flags of a block of flag bytes, in byte order
+	//! The bit mask of the high bits of the bytes of a block, in byte order: of 0x80 flag bytes, or of the non ASCII
+	//! bytes of data
 	static inline uint64_t PackFlagBytes(const uint8_t *flags) {
 		// word i contributes bit i of every byte, the transpose puts the bytes of word i at bits i * 8 to i * 8 + 7
 		uint64_t transposed = 0;
@@ -136,7 +137,7 @@ struct SwarBlock {
 #if DUCKDB_IS_BIG_ENDIAN
 			word = BSwap(word);
 #endif
-			transposed |= word >> (SwarWord::SIZE - 1 - i);
+			transposed |= (word & SwarWord::MSB) >> (SwarWord::SIZE - 1 - i);
 		}
 		return TransposeBits(transposed);
 	}
@@ -184,6 +185,15 @@ struct SwarBlock {
 			bits |= Load<uint64_t>(block + i * SwarWord::SIZE);
 		}
 		return (bits & 0x8080808080808080ULL) != 0;
+	}
+
+	//! Whether a byte of the block equals `a` or `b`; a byte loop, which the compiler vectorizes
+	static inline bool HasBytes(const_data_ptr_t block, const uint8_t a, const uint8_t b) {
+		uint8_t flags[SIZE];
+		for (idx_t i = 0; i < SIZE; i++) {
+			flags[i] = block[i] == a || block[i] == b ? 0x80 : 0;
+		}
+		return HasHighBits(flags);
 	}
 
 	//! Mask of the bytes matching any pattern plus possibly bytes right above a match, no match is ever missed
