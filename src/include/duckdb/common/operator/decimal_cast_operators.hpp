@@ -12,7 +12,6 @@
 #include "duckdb/common/operator/cast_operators.hpp"
 #include "duckdb/common/types/decimal.hpp"
 #include "duckdb/common/operator/integer_cast_operator.hpp"
-#include "duckdb/common/operator/multiply.hpp"
 
 namespace duckdb {
 
@@ -753,16 +752,20 @@ struct DecimalCastOperation {
 		} else {
 			// positive exponent: append 0's
 			if (state.result != 0) {
-				using store_t = typename T::StoreType;
-				if (UnsafeNumericCast<uint32_t>(exponent) > state.width) {
-					return false;
-				}
-				auto power = UnsafeNumericCast<store_t>(
-				    DecimalCastTraits<store_t>::POWERS_OF_TEN_CLASS::POWERS_OF_TEN[exponent]);
-				if (!TryMultiplyOperator::Operation(state.result, power, state.result)) {
-					return false;
+				for (idx_t i = 0; i < idx_t(exponent); i++) {
+					if (NEGATIVE) {
+						if (state.result < DecimalCastLimits<typename T::StoreType>::MinimumDiv10) {
+							return false;
+						}
+					} else {
+						if (state.result > DecimalCastLimits<typename T::StoreType>::MaximumDiv10) {
+							return false;
+						}
+					}
+					state.result *= 10;
 				}
 			}
+			// decimals moved before the decimal point by the exponent do not count towards the digit count
 			return WithinLimit<T, NEGATIVE>(state);
 		}
 	}
@@ -780,22 +783,20 @@ struct DecimalCastOperation {
 			// we just truncate the decimal
 			return true;
 		}
+		if (state.result == 0 && digit == 0) {
+			// leading zeros after the decimal point still advance decimal_count
+			state.decimal_count++;
+			return true;
+		}
 		//! If we expect an exponent, we need to preserve the decimals
 		//! But we don't want to overflow, so we prevent overflowing the result with this check
-		using store_t = typename T::StoreType;
-		constexpr auto max_digits = DecimalWidth<store_t>::max;
-		if (state.digit_count + state.decimal_count >= max_digits) {
-			// leading zeros of the decimals are not digits of the result
-			auto full = UnsafeNumericCast<store_t>(
-			    DecimalCastTraits<store_t>::POWERS_OF_TEN_CLASS::POWERS_OF_TEN[max_digits - 1]);
-			bool result_is_full = NEGATIVE ? state.result <= -full : state.result >= full;
-			if (result_is_full || state.decimal_count == NumericLimits<uint8_t>::Maximum()) {
-				if (!state.decimal_dropped) {
-					state.decimal_dropped = true;
-					state.round_dropped = digit >= 5;
-				}
-				return true;
+		if (NEGATIVE ? state.result <= DecimalCastLimits<typename T::StoreType>::MinimumDiv10
+		             : state.result >= DecimalCastLimits<typename T::StoreType>::MaximumDiv10) {
+			if (!state.decimal_dropped) {
+				state.decimal_dropped = true;
+				state.round_dropped = digit >= 5;
 			}
+			return true;
 		}
 		state.decimal_count++;
 		if (NEGATIVE) {
