@@ -53,6 +53,8 @@ BoundStatement Binder::BindNode(RecursiveCTENode &statement) {
 
 	// Create temporary binder to bind expressions
 	auto aggregate_binder = Binder::CreateBinder(context, nullptr);
+	// resolve names like the query does, for example with the search path of a view
+	aggregate_binder->entry_retriever.Inherit(entry_retriever);
 	ErrorData error;
 	FunctionBinder function_binder(*aggregate_binder);
 	aggregate_binder->bind_context.AddGenericBinding(setop_index, statement.ctename, result.names, result.types);
