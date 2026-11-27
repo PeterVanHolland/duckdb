@@ -6,6 +6,7 @@
 #include "duckdb/parser/expression/operator_expression.hpp"
 #include "duckdb/parser/expression/star_expression.hpp"
 #include "duckdb/parser/query_node/select_node.hpp"
+#include "duckdb/parser/tableref/bound_ref_wrapper.hpp"
 #include "duckdb/parser/tableref/subqueryref.hpp"
 #include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
@@ -214,6 +215,8 @@ static BoundStatement CopyToJSONPlanInternal(Binder &binder, CopyStatement &stmt
 	vector<string> partition_columns;
 	bool write_partition_columns = false;
 	vector<Identifier> original_column_names;
+	BoundStatement bound_query;
+	shared_ptr<Binder> query_binder;
 	const auto is_geojson = format == JSONCopyToFormat::GEOJSON;
 	const auto is_geojsonl = is_geojson && StringUtil::CIEquals(stmt.info->format, "geojsonl");
 	// GeoJSON is wrapped in a FeatureCollection by default, but newline-delimited GeoJSON (geojsonl) and plain
@@ -262,11 +265,14 @@ static BoundStatement CopyToJSONPlanInternal(Binder &binder, CopyStatement &stmt
 					ThrowJSONCopyNullException(format, option_name);
 				}
 			}
-			if (original_column_names.empty()) {
-				auto node_copy = copy_info.select_statement->Copy();
-				auto child_binder = Binder::CreateBinder(binder.context, &binder);
-				auto bound = child_binder->Bind(*node_copy);
-				original_column_names = bound.names;
+			if (!query_binder) {
+				// the rewrite reads this binding, binding the query again would repeat its side effects
+				auto query_select = make_uniq<SelectStatement>();
+				query_select->node = copy_info.select_statement->Copy();
+				unique_ptr<TableRef> query_ref = make_uniq<SubqueryRef>(std::move(query_select));
+				query_binder = Binder::CreateBinder(binder.context, &binder);
+				bound_query = query_binder->Bind(*query_ref);
+				original_column_names = bound_query.names;
 			}
 			auto converted = ConvertVectorToValue(vector<Value>(option_values));
 			auto partition_indices = ParseColumnsOrdered(converted, original_column_names, option_name);
@@ -366,7 +372,17 @@ static BoundStatement CopyToJSONPlanInternal(Binder &binder, CopyStatement &stmt
 	copy_info.options["delimiter"] = {"\n"};
 	copy_info.options["header"] = {{0}};
 
-	auto result = binder.Bind(stmt);
+	BoundStatement result;
+	if (query_binder) {
+		// bind the rewrite on top of the query bound above, the statement keeps the parsed query
+		auto rewrite = select_node.Copy();
+		rewrite->Cast<SelectNode>().from_table =
+		    make_uniq<BoundRefWrapper>(std::move(bound_query), std::move(query_binder));
+		auto bound_rewrite = binder.Bind(*rewrite);
+		result = binder.Bind(stmt, bound_rewrite);
+	} else {
+		result = binder.Bind(stmt);
+	}
 	BindJSONCopyToJSONFunction(binder, result, date_format, timestamp_format, is_geojson, original_column_names);
 	return result;
 }

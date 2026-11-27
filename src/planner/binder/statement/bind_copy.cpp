@@ -407,8 +407,13 @@ private:
 	const vector<idx_t> &partition_columns;
 };
 
-BoundStatement Binder::BindCopyTo(CopyStatement &stmt, const CopyFunction &function, CopyToType copy_to_type) {
+BoundStatement Binder::BindCopyTo(CopyStatement &stmt, const CopyFunction &function, CopyToType copy_to_type,
+                                  optional_ptr<BoundStatement> bound_query) {
 	if (function.plan) {
+		if (bound_query) {
+			throw InternalException("COPY TO with a bound query cannot be rewritten by FORMAT \"%s\"",
+			                        stmt.info->format);
+		}
 		// plan rewrite COPY TO
 		auto result = function.plan(*this, stmt);
 		// a rewrite that re-binds the COPY consumes PARTITION_PATH
@@ -422,8 +427,13 @@ BoundStatement Binder::BindCopyTo(CopyStatement &stmt, const CopyFunction &funct
 	// bind the select statement
 	// preserve SQLNULL types from table functions (e.g. JSON reader null columns)
 	// so file writers that support it can emit the correct null type (e.g. parquet UNKNOWN/NullType)
-	auto node_copy = copy_info.select_statement->Copy();
-	auto select_node = Bind(*node_copy);
+	BoundStatement select_node;
+	if (bound_query) {
+		select_node = std::move(*bound_query);
+	} else {
+		auto node_copy = copy_info.select_statement->Copy();
+		select_node = Bind(*node_copy);
+	}
 
 	if (!function.copy_to_bind) {
 		throw NotImplementedException("COPY TO is not supported for FORMAT \"%s\"", stmt.info->format);
@@ -860,7 +870,11 @@ void Binder::BindCopyOptions(CopyInfo &info, const CopyFunction &function) {
 	}
 }
 
-BoundStatement Binder::Bind(CopyStatement &stmt, CopyToType copy_to_type) {
+BoundStatement Binder::Bind(CopyStatement &stmt, BoundStatement &bound_query) {
+	return Bind(stmt, CopyToType::COPY_TO_FILE, bound_query);
+}
+
+BoundStatement Binder::Bind(CopyStatement &stmt, CopyToType copy_to_type, optional_ptr<BoundStatement> bound_query) {
 	BindCopyFormat(*stmt.info);
 	if (stmt.info->is_from && stmt.info->parsed_options.find("partition_path") != stmt.info->parsed_options.end()) {
 		throw InvalidInputException("Option partition_path is not supported for reading - only for writing");
@@ -987,7 +1001,7 @@ BoundStatement Binder::Bind(CopyStatement &stmt, CopyToType copy_to_type) {
 	if (stmt.info->is_from) {
 		return BindCopyFrom(stmt, function);
 	} else {
-		return BindCopyTo(stmt, function, copy_to_type);
+		return BindCopyTo(stmt, function, copy_to_type, bound_query);
 	}
 }
 
