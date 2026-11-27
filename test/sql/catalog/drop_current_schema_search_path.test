@@ -1,0 +1,52 @@
+# name: test/sql/catalog/drop_current_schema_search_path.test
+# description: Dropping the current schema resets the default to the catalog of that schema
+# group: [catalog]
+
+statement ok
+CREATE SCHEMA other
+
+statement ok
+ATTACH ':memory:' AS db2
+
+# another search path entry with the default schema does not become the default
+statement ok
+SET search_path = 'other,db2.main'
+
+statement ok
+DROP SCHEMA other
+
+query II
+SELECT current_catalog(), current_schema()
+----
+memory	main
+
+statement ok
+CREATE SCHEMA db2.s1
+
+statement ok
+USE db2.s1
+
+statement ok
+DROP SCHEMA s1
+
+query II
+SELECT current_catalog(), current_schema()
+----
+db2	main
+
+statement ok
+CREATE SCHEMA db2.a
+
+statement ok
+CREATE SCHEMA db2.a.b
+
+statement ok
+USE db2.a.b
+
+statement ok
+DROP SCHEMA db2.a CASCADE
+
+query II
+SELECT current_catalog(), current_schema()
+----
+db2	main
