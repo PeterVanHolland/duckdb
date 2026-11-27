@@ -31,6 +31,7 @@ unique_ptr<TableRef> BaseTableRef::Copy() {
 	copy->SetQualifiedName(GetQualifiedName());
 	copy->column_name_alias = column_name_alias;
 	copy->at_clause = at_clause ? at_clause->Copy() : nullptr;
+	copy->view_catalog = view_catalog;
 	CopyProperties(*copy);
 
 	return std::move(copy);
