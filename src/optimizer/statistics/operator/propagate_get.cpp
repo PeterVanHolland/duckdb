@@ -138,6 +138,10 @@ static bool IsNullOnlyForNullColumn(Expression &expr) {
 		if (func.Function().GetNullHandling() != FunctionNullHandling::DEFAULT_NULL_HANDLING) {
 			return false;
 		}
+		// a struct field can be NULL where the struct is not
+		if (func.Function().GetName() == "struct_extract" || func.Function().GetName() == "struct_extract_at") {
+			return false;
+		}
 		return ArgumentsAreColumnOrConstant(func.GetChildren(), 0);
 	}
 	case ExpressionClass::BOUND_OPERATOR: {
