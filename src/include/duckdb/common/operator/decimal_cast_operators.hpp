@@ -644,6 +644,10 @@ struct DecimalCastData {
 	bool round_set;
 	//! If the result should be rounded
 	bool should_round;
+	//! Whether a decimal was dropped because the result is full
+	bool decimal_dropped;
+	//! If the first dropped decimal rounds the result up
+	bool round_dropped;
 	//! Only set when ALLOW_EXPONENT is enabled
 	uint32_t excessive_decimals;
 	ExponentType exponent_type;
@@ -719,6 +723,10 @@ struct DecimalCastOperation {
 				exponent = 0;
 			} else {
 				exponent -= UnsafeNumericCast<int32_t>(decimal_excess);
+				if (exponent == 0 && state.round_dropped) {
+					// the first dropped decimal is the first one past the scale
+					RoundUpResult<T, NEGATIVE>(state);
+				}
 			}
 			D_ASSERT(exponent >= 0);
 		} else if (exponent < 0) {
@@ -784,6 +792,10 @@ struct DecimalCastOperation {
 		//! But we don't want to overflow, so we prevent overflowing the result with this check
 		if (NEGATIVE ? state.result <= DecimalCastLimits<typename T::StoreType>::MinimumDiv10
 		             : state.result >= DecimalCastLimits<typename T::StoreType>::MaximumDiv10) {
+			if (!state.decimal_dropped) {
+				state.decimal_dropped = true;
+				state.round_dropped = digit >= 5;
+			}
 			return true;
 		}
 		state.decimal_count++;
@@ -863,6 +875,8 @@ bool TryDecimalStringCast(const char *string_ptr, idx_t string_size, T &result, 
 	state.exponent_type = ExponentType::NONE;
 	state.round_set = false;
 	state.should_round = false;
+	state.decimal_dropped = false;
+	state.round_dropped = false;
 	state.limit = UnsafeNumericCast<T>(DecimalCastTraits<T>::POWERS_OF_TEN_CLASS::POWERS_OF_TEN[width]);
 	if (!TryIntegerCast<DecimalCastData<T>, true, true, DecimalCastOperation, false, decimal_separator>(
 	        string_ptr, string_size, state, false)) {
@@ -888,6 +902,8 @@ bool TryDecimalStringCast(const char *string_ptr, idx_t string_size, T &result, 
 	state.exponent_type = ExponentType::NONE;
 	state.round_set = false;
 	state.should_round = false;
+	state.decimal_dropped = false;
+	state.round_dropped = false;
 	state.limit = UnsafeNumericCast<T>(DecimalCastTraits<T>::POWERS_OF_TEN_CLASS::POWERS_OF_TEN[width]);
 	if (!TryIntegerCast<DecimalCastData<T>, true, true, DecimalCastOperation, false, decimal_separator>(
 	        string_ptr, string_size, state, false)) {
