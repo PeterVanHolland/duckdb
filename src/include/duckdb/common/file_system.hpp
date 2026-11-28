@@ -99,6 +99,9 @@ public:
 	timestamp_t GetLastModifiedTime(FileHandle &handle) {
 		return handle.file_system.GetLastModifiedTime(handle);
 	}
+	optional<timestamp_t> TryGetLastModifiedTime(FileHandle &handle) {
+		return handle.file_system.TryGetLastModifiedTime(handle);
+	}
 	string GetVersionTag(FileHandle &handle) {
 		return handle.file_system.GetVersionTag(handle);
 	}
